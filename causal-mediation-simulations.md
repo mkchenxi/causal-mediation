@@ -27,6 +27,7 @@ iteration:
 
 The formula for calculating the bias-corrected average causal mediation
 effect (ACME, a.k.a. indirect effect or $\beta_2\beta_4$) is:
+
 $$ ACME = \dfrac{\beta_2\sigma_1}{\sigma_2}\left[\tilde{\rho}-\rho\sqrt{\dfrac{1-\tilde{\rho}^2}{1-\rho^2}}\right]$$
 
 First, define a function of ACME:
