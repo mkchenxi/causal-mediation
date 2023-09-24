@@ -248,7 +248,7 @@ data <- data.frame(D = D, M = M, Y = Y)
 
 ## Estimation
 
-We first estimate $\beta_4$ with a direct regression of $Y ~ D + M$:
+We first estimate $\beta_4$ with a direct regression of $Y \sim D + M$:
 
 ``` r
 summary(lm(Y~D+M, data))
