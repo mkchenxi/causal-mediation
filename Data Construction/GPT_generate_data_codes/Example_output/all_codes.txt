@@ -1,0 +1,3559 @@
+---- FILE: 00 READ ME.Rmd ----
+---
+title: "00 Read Me"
+author: 
+date: "5/18/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+This `Read Me` file describes how this project was use to produced the results in for "Two Ways to Stay at the Top: Prestige and Dominance are Viable Strategies for Gaining and Maintaining Social Rank Over Time". It also contains and loads all of the R packages that were used for these analyses, as well as a user-defined function that reports p values.  
+
+# Introduction
+All analyses were conducted using R Markdown files (more information about R Markdown can be found at https://rmarkdown.rstudio.com/). The methods, results, and supplemental materials for our manuscript were also written in R Markdown using both the `papaja` and `tidystats` packages. 
+
+This project contains several R Markdown files that when run will produce the analyses, methods, and result when run on our raw dataset. The data from our main study are not publicly available as we do not have consent from our participants to share data. Thus, these files can be used to verify how analyses were conducted but not to verify results. Data from the pilot study are available and can be run with the `100 Knitting.Rmd1` file. 
+
+Analyses files were designed to be run in the local environment, and the write-up and table files are knit to separate Word documents. This is most easily accomplished by running the chunks in the `100 Knitting.Rmd` file; this runs and reproduces analyses and write-ups in order. 
+
+
+In addition to this `00 READ ME.Rmd` file and the `100 Knitting.Rmd` file (which is used to run and knit other files), this project contains the following R Markdown files:
+01 Pilot Study Analysis 
+02 Factor Analysis
+03 Scale Creation
+04 Demographics and Descriptives
+05 Hypothesis Testing
+06 Self-Report Models
+07 TIPI Analyses
+08 Social Relations Model
+09 Additional Gender Analyses
+10 Curvilinear Models
+11 Methods
+12 Results
+13 Tables
+14 Supplemental Tables
+
+Finally, the deference mediation model was conducted in Mplus. Code and output for this model is in the following file:
+"Mplus meditation output file.out"
+
+
+
+
+# Packages
+We used the following packages in our analyses/write-up. The following should be run before running any other .Rmd files. (This step is included if running files from the `100 Knitting.Rmd` file, which is recommended)
+
+```{r}
+library(here) #this is a convenient way of referencing files within the project
+library(dplyr) #this will help us clean and summarise data
+library(psych) #this is how we will compute scale reliabilties
+library(tidystats) #we will use this to compile/report our reliabilities
+library(lme4) #this is how we will run our multi-level models
+library(lmerTest) #this is how we will get the p-values for the fixed effects
+library(TripleR) #we use this for the exploratory social relations model data
+library(broom.mixed) #this is how we pull the effects out of the multilevel models so we can report them
+library(apaTables) #we will use this for make our correlation table
+library(sjstats) # we will use this for our ICCs and to get standardized estimates
+library(papaja) #this package is helpful in producing our methods and results section
+library(purrr) #we use this to build our gender t-test table for the Supplemental Materials
+library(reghelper) #we use this to get the simple slopes for interactions (in the Supplemental Materials)
+library(emmeans) #this get use the predicted values for the simple slopes (in the Supplemental Materials)
+library(stringr) #this helps us manipulate strings
+library(ggplot2) # Will use this for plots
+library(papaja) #this is how we write the methods and results
+library(english) # This will take our numbers than are 10 or less and write them out as english words per APA style guidelines
+library(lavaan) # This will be used for our confirmatory factor analyses
+library(glue) #we'll use this for reporting
+library(janitor) #we use this for the clean_names() function
+library(simr) #we need this for our power calculation
+```
+
+# Custom Functions
+I also wrote a function to report p values. I'm going to run this here so it's available when we need it.
+```{r}
+reportp <- function(p) {
+  if (p > 1 | p < 0) {
+    stop('Whoops, looks like you tried to use the reportp() function on a number that is not a p-value')
+  }
+  else if (p < .001) {
+  glue('_p_ < .001')
+  }
+  else if(p > .3) {
+  glue('_p_ = {sub("0.", ".", sprintf("%.2f", round(p, 2)))}') #we use the sub() function to get rid of the 0 before the decimal; that's apa standard for values that cannot exceed 1; will use sprintf to get the trailing zeros https://stackoverflow.com/questions/5458729/keeping-trailing-zeros
+  }
+  else {
+  glue('_p_ = {sub("0.", ".", sprintf("%.3f", round(p, 3)))}')
+  }
+}
+```
+
+
+
+---- FILE: 01 Pilot Study Analysis.Rmd ----
+---
+title: "01 Pilot Study Analysis"
+author: 
+output: word_document
+---
+
+# Set up + Data Cleaning 
+Reading in data
+```{r}
+mba <- read.csv(here('Raw Data/pilot_raw_data_mba_osf.csv'))
+ug <- read.csv(here('Raw Data/pilot_raw_data_undergrad_osf.csv'))
+
+names(mba) <- tolower(names(mba))
+names(ug) <- tolower(names(ug))
+```
+
+Cleaning up the MBA data...
+```{r}
+#get the right variables and name them
+mba <- mba %>% 
+  select(q2_1:q1) %>% 
+  rename(gender = q1) %>% 
+  rename_all(.funs = funs(sub("q2_", "q", .))) %>% 
+  mutate(population = 'mba')
+
+#make the gender variable a factor
+mba <- mba %>% 
+   mutate(gender = factor(gender, levels = c(1, 2, 3), labels = c('Male', 'Female', 'Other')))
+```
+
+Cleaning up the undergrad data 
+```{r}
+#get the right variables and name them
+ug <- ug %>% 
+  select(gender = q180,q1:q8) %>% 
+  mutate(population = 'undergrad')
+
+#cleaning up the gender variable
+ug <- ug %>% 
+  mutate(gender = droplevels(gender))
+
+levels(ug$gender) = list(`1` = 'Male', `2` = 'Female', `3` = 'Other Gender Identity')
+
+ug$gender <- factor(ug$gender, levels = c(1, 2, 3), labels = c('Male', 'Female', 'Other'))
+                  
+#cleaning up the likert so it's just numbers
+extract_num <- funs(gsub("([0-9]+).*$", "\\1", .))
+ug <- ug %>% 
+  mutate_at(.vars = vars(contains('q')), 
+            .funs = funs(as.numeric(gsub("([0-9]+).*$", "\\1", .))))
+```
+
+Bind the data together
+```{r}
+pilot <- bind_rows(mba, ug)
+
+#the person who has no gender data is actually an empty row, so we will omit them here.
+pilot <- pilot %>% 
+  filter(!is.na(gender))
+```
+
+We'll want the N by sample, too
+```{r}
+pilot_n <- pilot %>% 
+  count(population)
+pilot_n_by_gend <- pilot %>% 
+  count(population, gender)
+```
+
+
+# Creating Scales
+Let's see what the factor structure for this looks like
+```{r}
+fact1 <- pilot %>% 
+  select(starts_with('q'))
+ 
+fa.parallel(fact1, fm = 'minres', fa= 'fa') #two factors are recommended
+
+efa1 <- fa(fact1, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(efa1$loadings, cutoff = 0.3)
+summary(efa1)
+
+efa2 <- fa(fact1, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(efa2$loadings, cutoff = 0.3)
+summary(efa2) #two factors fit the data better
+```
+Let's try without the first 1 (which is cross-loading), aiming for 2 scales
+```{r}
+fact2 <- pilot %>% 
+  select(starts_with('q')) %>% 
+  select(-q1)
+
+efados1 <- fa(fact2, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(efados1$loadings, cutoff = 0.3)
+summary(efados1)
+
+efados2 <- fa(fact2, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(efados2$loadings, cutoff = 0.3)
+summary(efados2) #yes, it looks better without that first item
+```
+
+What is the reliability of these scales?
+```{r}
+norm_alpha <-pilot %>% 
+  select(q2, q5, q8) %>% 
+  psych::alpha()
+
+#I call this factor "endorse" here, but in the paper we refer to it as "acceptance"
+endorse_alpha <- pilot %>% 
+  select(q3, q4, q6, q7) %>% 
+  psych::alpha()  
+```
+
+Now let's make our scale
+```{r}
+pilot <- pilot %>% 
+  mutate(endorse = rowMeans(select(., c(q3, q4, q6, q7)), na.rm = T), 
+         norm = rowMeans(select(., c(q2, q5, q8)), na.rm = T))
+```
+
+#Hypothesis Testing
+We'll use an Welch's independent samples t-test, which assumes unequal variance, as our sample sizes are not equal. 
+```{r}
+norm_test <- t.test(pilot$norm~pilot$population, alternative = "two.sided", var.equal = FALSE)
+print(norm_test)
+
+endorse_test <- t.test(pilot$endorse~pilot$population, alternative = "two.sided", var.equal = FALSE)
+print(endorse_test)
+
+#now let's tidy these up for the manuscript
+norm_ttest <- broom::tidy(norm_test) #we've already loaded the broom.mixed package for our MLM results, so we need to specify we want the regular broom here
+endorse_ttest <- broom::tidy(endorse_test)
+
+norm_meansd <- pilot %>% 
+  group_by(population) %>% 
+  summarise(mean = mean(norm), 
+            sd = sd(norm))
+
+endorse_meansd <- pilot %>% 
+  group_by(population) %>% 
+  summarise(mean = mean(endorse), 
+            sd = sd(endorse))
+
+```
+
+Let's make sure that the results hold while controlling for gender
+```{r}
+#people seem to prefer anova output when comparing group means so we will do that
+normlm <- lm(norm~population +gender, data = pilot, contrasts = list(population = 'contr.sum', gender = 'contr.sum'))
+normgend <- car::Anova(normlm, type = 3)
+normgend <- clean_names(normgend)
+normgend
+
+endorselm <- lm(endorse~population +gender, data = pilot, contrasts = list(population = 'contr.sum', gender = 'contr.sum'))
+endorsegend <- car::Anova(endorselm, type = 3)
+endorsegend <- clean_names(endorsegend)
+print(endorsegend)
+
+
+#let's also get the estimated adjusted marginal means (vs. measured means)
+normgendmean <- tidy(emmeans(normlm, "population"))
+endorsegendmean <- tidy(emmeans(endorselm, "population"))
+
+#if we wanted the SDs, this is how we would get them:
+#endorse_mba_sd <- endorsegendmean$std.error[endorsegendmean$population == 'mba']*sqrt(pilot_n$n[pilot_n$population == 'mba']) 
+#endorse_ug_sd <- endorsegendmean$std.error[endorsegendmean$population == 'undergrad']*sqrt(pilot_n$n[pilot_n$population == 'undergrad'])
+```
+
+
+
+
+---- FILE: 02 Factor Analysis.Rmd ----
+---
+title: "02 Factor Analysis"
+author: 
+output: word_document
+---
+The following code loads the raw data and conducts factor analyses. It also creates a copy of the data with all observations (`both_dataa`) and a copy of the data at the target level (`both_datat`).  We also make a dataset of only the people who completed the study (`self_reports`).
+
+# Creating the Datasets
+```{r}
+#note: this code will not work as raw data cannot be posted publicly
+both_dataa <- read.csv(here('Raw Data', 'full_mba_data.csv'))
+```
+
+Now we will split this into our different datasets. 
+```{r}
+both_datat <- both_dataa %>% 
+  group_by(target) %>% 
+  distinct(target, .keep_all = T) 
+
+self_reports <- both_dataa %>% 
+  filter(!is.na(jcheng_1) | !is.na(jcheng_10) | !is.na(jcheng_14)) %>% 
+  distinct(target, .keep_all = T)
+
+```
+
+
+Because not all the items from our social rank measure have been used before, we need to do some factor analyses to see how they play with the other variables in the dataset. 
+
+1.	“This person has relatively strong influence with the group,”
+2.	“This person’s wishes or opinions impact the group’s processes,”
+3.	“This person has relatively high status within the group,”
+4.	“Others in the group look up to his person,”
+5.	“This person leads the group,”
+6.	“The group acts in accordance with this person’s wishes or opinions.”
+
+We can first look at the zero-order correlation of the prestige, dominance and social rank items. 
+```{r}
+#first we select the relevant variables
+presanddv_t1 <- both_dataa %>% 
+  select(starts_with('jc'), starts_with('dv')) %>% #dominance and prestige items all start with 'jc', social rank all start with 'dv'
+  select(contains('t1'), -contains('scales')) %>% #I computed scales before merging some data, so let's remove those; also focus on T1 to start
+  select(pre1 = jc1t1, pre2 = jc37t1, pre3 = jc38t1, pre4 = jc39t1, dom1 = jc27t1, dom2 = jc29t1, 
+         dom3 = jc31t1, dom4 = jc33t1, dv1_t1:dv6_t1) #relabel so it's easier to read
+
+
+#do the same thing for T2
+presanddv_t2 <- both_dataa %>% 
+  select(starts_with('jc'), starts_with('dv')) %>% 
+  select(contains('t2'), -contains('scales')) %>% 
+  select(pre1 = jc1t2, pre2 = jc37t2, pre3 = jc38t2, pre4 = jc39t2, dom1 = jc27t2, dom2 = jc29t2, 
+         dom3 = jc31t2, dom4 = jc33t2, dv1_t2:dv6_t2)
+
+#then we can make correlation plots
+corPlot(presanddv_t1, upper = F, diag = F, numbers=T)
+corPlot(presanddv_t2, upper = F, diag = F, numbers=T)
+```
+
+DV items 2, 3,  and 4 appear to be particularly related to the DV. 
+Based on that and our theoretical examination of the items, it seems like those items may be too similar to the DV. We are interested in focusing on 3 items from our 6 DV items to start: #1, #5, #6. Of these, #1 and #5 are favorites because they have been used in prior work. 
+
+# Factor Analyses with Prestige and Social Rank
+First we will just look at prestige and social rank, as they are probably most similar. 
+We will begin with an exploratory factor analysis to see if these load onto different scales.
+```{r}
+#T1
+#first we get the variables we care about into a separate dataframe
+trimfat1 <- both_dataa %>% 
+  select(jc1t2, jc37t1:jc39t1, dv1_t1, dv5_t1, dv6_t1)
+
+#Do a PCA/scree plot to see the recommended number of factors?
+fa.parallel(trimfat1, fm = 'minres', fa= 'fa')
+
+#Let's do an EFA with two factors
+trim_efa <- fa(trimfat1, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(trim_efa$loadings, cutoff = 0.3) #this gives us our loadings; no evidence of cross-loading
+print(trim_efa) #model fit is decent
+
+#Now let's compare to an EFA with one factor
+trim_efa_uno <- fa(trimfat1, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(trim_efa_uno$loadings, cutoff = 0.3) 
+summary(trim_efa_uno) #This is *significantly* worse than two factors
+```
+
+Let's compare this to T2
+```{r}
+#Same process at T2
+trimfat2 <- both_dataa %>% 
+  select(jc1t2, jc37t2:jc39t2, dv1_t2, dv5_t2, dv6_t2)
+fa.parallel(trimfat2, fm = 'minres', fa= 'fa')
+
+trim_efa_t2 <- fa(trimfat2, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(trim_efa_t2$loadings, cutoff = 0.3) #NO cross-loading; first prestige item is not loading very strongly
+summary(trim_efa_t2) #model fit is not fantastic but not horrendous
+
+trim_efa_uno_t2 <- fa(trimfat2, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(trim_efa_uno_t2$loadings, cutoff = 0.3) 
+summary(trim_efa_uno_t2) #model fit is significantly worse (and really quite bad)
+
+
+```
+
+Now we'll do some CFAs so we can use the modification indices to see how we might improve model fit
+```{r}
+#we'll start at T2, because that EFA had relatively worse fit than T1
+first_cfa_t2 <- ' prestige =~ jc1t2 + jc37t2 + jc38t2 + jc39t2
+                  rank =~ dv1_t2 + dv2_t2 + dv5_t2 + dv6_t2
+                  dv1_t2	~~	dv6_t2	'                          
+first_cfa_t2_fit <- cfa(first_cfa_t2, data = both_dataa, std.lv= T)
+summary(first_cfa_t2_fit, fit.measures = T, standardized = T)
+modificationIndices(first_cfa_t2_fit, sort.=TRUE, minimum.value=3)
+
+
+#if we do the same model but at T1, how is the fit?
+first_cfa_t1 <- ' prestige =~ jc1t1 + jc37t1 + jc38t1 + jc39t1
+                  rank =~ dv1_t1 + dv2_t1 + dv5_t1 + dv6_t1
+                  dv1_t1	~~	dv6_t1'                          
+first_cfa_t1_fit <- cfa(first_cfa_t1, data = both_dataa, std.lv= T)
+summary(first_cfa_t1_fit, fit.measures = T, standardized = T)
+modificationIndices(first_cfa_t1_fit, sort.=TRUE, minimum.value=3)
+
+```
+Both of these indicate that the first prestige item isn't strongly loading onto that scale (and is similar to items on the social rank scale). They also suggest that DV item #6 is too similar to items on the prestige scale. We will now try EFAs without those items. 
+
+
+Second (and final) round of EFA
+```{r}
+#T1
+secondtrimfat1 <- both_dataa %>% 
+  select(jc37t1:jc39t1,  dv1_t1, dv5_t1)
+fa.parallel(secondtrimfat1, fm = 'minres', fa= 'fa')
+
+secondtrim_efa <- fa(secondtrimfat1, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(secondtrim_efa$loadings, cutoff = 0.2) #loadings look great
+print(secondtrim_efa) #very good model fit
+
+secondtrim_efa_uno <- fa(secondtrimfat1, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(secondtrim_efa_uno$loadings, cutoff = 0.3) #two factors is significantly better (by a long shot!)
+summary(secondtrim_efa_uno)
+
+```
+
+Let's also look at T2
+```{r}
+#t2
+secondtrimfat2 <- both_dataa %>% 
+  select(jc37t2:jc39t2,  dv1_t2,  dv5_t2)
+fa.parallel(secondtrimfat2, fm = 'minres', fa= 'fa')
+
+secondtrim_efa_t2 <- fa(secondtrimfat2, nfactors = 2, rotate = 'oblimin', fm = 'minres')
+print(secondtrim_efa_t2$loadings, cutoff = 0.2) #again, loadings look close to ideal
+summary(secondtrim_efa_t2) #model fit is good
+
+secondtrim_efa_uno_t2 <- fa(secondtrimfat2, nfactors = 1, rotate = 'oblimin', fm = 'minres')
+print(secondtrim_efa_uno_t2$loadings, cutoff = 0.3) #one factor really does not seem to fit the data
+summary(secondtrim_efa_uno_t2)
+
+
+```
+
+#Full factor analyses
+Now that we've got our social rank and prestige scales down, we add the other peer-rated items to do a factor analyses of all measures at Time 1 and 2. 
+
+First the EFA...
+```{r}
+#t1
+fulltrimfat1 <- both_dataa %>% 
+  select(jc37t1:jc39t1,  dv1_t1,  dv5_t1, jc27t1, jc29t1, jc31t1, jc33t1, peercontri_t1, peersocial_t1)
+fa.parallel(fulltrimfat1, fm = 'minres', fa= 'fa')
+
+fulltrim_efa_t1 <- fa(fulltrimfat1, nfactors = 5, rotate = 'oblimin', fm = 'minres')
+print(fulltrim_efa_t1$loadings, cutoff = 0.3) #No cross-loading; honestly is *beautiful*
+summary(fulltrim_efa_t1) 
+
+
+#t2
+fulltrimfat2 <- both_dataa %>% 
+  select(jc37t2:jc39t2,  dv1_t2,  dv5_t2, jc27t2, jc29t2, jc31t2, jc33t2, peercontri_t2, peersocial_t2)
+fa.parallel(fulltrimfat2, fm = 'minres', fa= 'fa')
+
+fulltrim_efa_t2 <- fa(fulltrimfat2, nfactors = 5, rotate = 'oblimin', fm = 'minres')
+print(fulltrim_efa_t2$loadings, cutoff = 0.3) #competence is the only one cross-loading (onto the social rank scale)
+summary(fulltrim_efa_t2)
+
+```
+
+
+---- FILE: 03 Scale Creation.Rmd ----
+---
+title: "03 Scale Creation"
+author: 
+output: word_document
+---
+
+
+# Creating Scales
+We'll start with the self-report measures (used in the Supplemental Materials) and then we will move to the peer-reports.
+
+## Self-Report Scales
+There are two self-report measures of dominance and prestige. The first (developed by Cheng et al.) measure dominance and prestige strategies. The second (the AMS) measure dominance and prestige motivation. Then we will compute the Big Five from the TIPI.
+
+### Dominance and Prestige Strategies Scales
+We can test the reliability of these scales and the compute the scales. We'll want to do this in the dataset that only has one rater per row.
+
+#### Dominance
+```{r}
+#DOMINANCE
+#Dominance items are 3, 5, 7, 9, 10 (reversed), 11, 12 (reversed), 16.
+#this function will automatically reserve code while calculating the alpha.
+jc_sr_dom <- self_reports %>%
+  select('jcheng_3', 'jcheng_5', 'jcheng_7', 'jcheng_9', 'jcheng_10', 'jcheng_11',
+         'jcheng_12', 'jcheng_16') %>%
+  psych::alpha(check.keys = TRUE) #need to specify it's from the psych package because it gets the `alpha` function confused with the one from ggplot
+
+print(jc_sr_dom)
+
+```
+
+Since that is fine, make the dominance scale. We need to reverse code a few items, though. We will do this in the full dataset and then we can create an updated copy of the dataset that is only self-reports at the end of the RMarkdown file (so we don't have to do everything twice).  
+```{r}
+
+#reverse coding dom items
+both_dataa$jcheng_10r <- 8-both_dataa$jcheng_10
+both_dataa$jcheng_12r <- 8-both_dataa$jcheng_12
+
+both_dataa$jcdomself <- rowMeans(both_dataa[, c('jcheng_3', 'jcheng_5',
+                                                'jcheng_7', 'jcheng_9',
+                                                'jcheng_10r', 'jcheng_11',
+                                                'jcheng_12r','jcheng_16')], na.rm = T)
+
+
+```
+
+
+
+#### Prestige
+Same procedure for prestige:
+```{r jc_sr_pre_rel}
+#Prestige tems are 1, 2 (reversed), 4, 6 (reversed), 8, 13, 14, 15, 17 (reversed).
+jc_sr_pre_rel <- self_reports %>%
+  select('jcheng_1', 'jcheng_2', 'jcheng_4', 'jcheng_6', 'jcheng_8', 'jcheng_13',
+         'jcheng_14','jcheng_15','jcheng_17') %>%
+  psych::alpha(check.keys = TRUE)
+print(jc_sr_pre_rel)
+
+```
+
+And make the scale:
+```{r make_jcpresself }
+#reverse coding pre items
+both_dataa$jcheng_2r <- 8-both_dataa$jcheng_2
+both_dataa$jcheng_6r <- 8-both_dataa$jcheng_6
+both_dataa$jcheng_17r <- 8-both_dataa$jcheng_17 
+
+both_dataa$jcpreself <- rowMeans(both_dataa[, c('jcheng_1', 'jcheng_2r',
+                                                'jcheng_4', 'jcheng_6r',
+                                                'jcheng_8', 'jcheng_13',
+                                                'jcheng_14', 'jcheng_15',
+                                                'jcheng_17r')], na.rm = T)
+```
+
+
+
+### Dominance and Prestige Motivation Scales
+We will do the same for the AMS dominance and prestige motivation scales. There were no reverse-coded items, so we can go ahead and test the reliability of these scales as is.
+
+#### Dominance
+```{r ams_dom_rel}
+#DOMINANCE
+ams_sr_dom <- self_reports %>%
+  select(starts_with('dom')) %>%
+  psych::alpha(check.keys = TRUE)
+
+print(ams_sr_dom)
+
+```
+Since that is fine, make the dominance scale
+```{r make_ams_dom}
+both_dataa$amsdomself <- rowMeans(both_dataa[,c('dom1','dom2','dom3',
+                                                'dom4','dom5','dom6',
+                                                'dom7')], na.rm = T)
+
+```
+
+#### Prestige
+Same procedure for prestige:
+```{r ams_pre_rel}
+ams_sr_pre_rel <- self_reports %>%
+  select(starts_with('pre')) %>%
+  psych::alpha(check.keys = TRUE)
+print(ams_sr_pre_rel)
+
+```
+
+And make the scale:
+```{r make_ams_pre }
+both_dataa$amspreself <- rowMeans(both_dataa[, c('pre1', 'pre2', 'pre3', 'pre4', 'pre5', 'pre6', 'pre7')], na.rm = T)
+
+
+#just checking to ensure this looks as expected
+both_dataa %>% 
+  select(groupnum, rater, target, dom1, pre1,  amsdomself, amspreself, jcheng_1, jcheng_17r, jcdomself, jcpreself) %>% 
+  arrange(groupnum) #yep, looks good
+```
+
+### TIPI
+Let's also make the Big Five from the TIPI.
+extraversion: 1, 5rev 
+neuroticism: 3, 10rev 
+conscientiousness: 8, 9rev 
+openness: 4, 7rev 
+agreeableness: 6, 2rev
+
+```{r}
+both_dataa <- both_dataa %>% 
+  mutate(tipi2_rev = 8- tipi_2, 
+         tipi5_rev = 8-tipi_5,
+         tipi7_rev = 8-tipi_7,
+         tipi9_rev = 8-tipi_9,
+         tipi10_rev = 8-tipi_10)
+both_dataa %>% 
+  select(starts_with('tipi')) %>% 
+  corr.test()
+
+
+both_dataa <- both_dataa %>% 
+  mutate(extra = rowMeans(select(., c(tipi_1, tipi5_rev)), na.rm = T), 
+         neuro = rowMeans(select(., c(tipi_3, tipi10_rev)), na.rm = T),
+         conscien = rowMeans(select(., c(tipi_8, tipi9_rev)), na.rm = T), 
+         open = rowMeans(select(., c(tipi_4, tipi7_rev)), na.rm = T), 
+         agree = rowMeans(select(., c(tipi_6, tipi2_rev)), na.rm = T)) 
+```
+That wraps up the self-report scales. 
+
+
+## Peer-Reports
+We will do this for dominance (whole sample), prestige (whole sample), and the DV (for the portion of the sample the received the multi-item scale). There will be a Time 1 and a Time 2 for all of these.
+
+
+### Dominance 
+*Time 1*
+First reliability...
+```{r peer_dom_rel}
+#dominance scales are made up of JC items 27, 29, 31, 33
+peer_dom_relt1 <- both_dataa %>%
+  filter(studynum == 2) %>% 
+  select("jc27t1", "jc29t1", "jc31t1", "jc33t1") %>%
+  psych::alpha(check.keys = TRUE) 
+print(peer_dom_relt1)
+
+```
+...and then make the scale:
+```{r make_peer_domt1}
+
+both_dataa$peerdomt1_scales <- rowMeans(both_dataa[, c("jc27t1", "jc29t1", "jc31t1", "jc33t1")], na.rm = T) 
+
+
+#now let's just compare to make sure this was the same as the scale that was already in the dataset. To test the comparison we will have to make NaNs into NAs.
+both_dataa$peerdomt1_scales[is.nan(both_dataa$peerdomt1_scales)] <- NA
+
+sum(is.na(both_dataa$peerdomt1_scales))
+sum(is.na(both_dataa$peerdomt1)) #ok nice, we have the same number of NAs
+identical(both_dataa[['peerdomt1_scales']], both_dataa[['peerdomt1']]) #and they are exactly the same. Phew! This means we created these scales properly
+```
+
+
+### Dominance T2
+First reliability...
+```{r peer_dom_relt2}
+#dominance scales are made up of JC items 27, 29, 31, 33
+peer_dom_relt2 <- both_dataa %>%
+  filter(studynum == 2) %>% 
+  select("jc27t2", "jc29t2", "jc31t2", "jc33t2") %>%
+  psych::alpha(check.keys = TRUE) 
+print(peer_dom_relt2)
+
+```
+...and then make the scale
+```{r make_peer_domt2}
+both_dataa$peerdomt2_scales <- rowMeans(both_dataa[, c("jc27t2", "jc29t2", "jc31t2", "jc33t2")], na.rm = T)
+
+```
+
+### Prestige T1
+First reliability...
+```{r peer_pre_relt1}
+peer_pre_relt1 <- both_dataa %>%
+  filter(studynum == 2) %>% 
+  select("jc37t1", "jc38t1", "jc39t1") %>%
+  psych::alpha(check.keys = TRUE) 
+print(peer_pre_relt1) #that will do
+```
+...and then make the scale
+```{r make_peer_pret1}
+both_dataa$peerpret1 <- rowMeans(both_dataa[, c("jc37t1", "jc38t1", "jc39t1")], na.rm = T)
+
+```
+### Prestige T2
+```{r peer_pre_relt2}
+peer_pre_relt2 <- both_dataa %>%
+  filter(studynum == 2) %>% 
+  select("jc37t2", "jc38t2", "jc39t2") %>%
+  psych::alpha(check.keys = TRUE) 
+print(peer_pre_relt2)
+
+```
+...and then make the scale
+```{r make_peer_pret2}
+both_dataa$peerpret2 <- rowMeans(both_dataa[, c("jc37t2", "jc38t2", "jc39t2")], na.rm = T)
+
+```
+
+
+### Social Rank T1
+Now we will create the social rank DV. First correlation (instead of reliability, since it is only two items)...
+```{r peer_dvrelt1}
+#SOCIAL RANK T1
+dv_corr_t1 <- corr.test(both_dataa$dv1_t1, both_dataa$dv5_t1) 
+print(dv_corr_t1)
+
+```
+
+...and then compute the scale
+```{r making_dv_t1}
+both_dataa$peerdv_t1 <- rowMeans(both_dataa[, c('dv1_t1', 'dv5_t1')], na.rm = T)
+```
+
+To address a reviewer request, we will also look at the results with the full scale
+```{r}
+both_dataa %>% 
+  mutate(fullpeerdv_t1 = rowMeans(select(., dv1_t1:dv6_t1), na.rm = T)) %>% 
+  select(dv1_t1:dv6_t1, fullpeerdv_t1)
+
+both_dataa <- both_dataa %>% 
+  mutate(fullpeerdv_t1 = rowMeans(select(., dv1_t1:dv6_t1), na.rm = T))
+```
+
+
+### Social Rank T2
+Correlations between items
+```{r peer_dv_relt2}
+dv_corr_t2 <- corr.test(both_dataa$dv1_t2, both_dataa$dv5_t2) 
+print(dv_corr_t2)
+
+```
+...and then compute the scale.
+```{r making_dvt2}
+both_dataa$peerdv_t2 <- rowMeans(both_dataa[, c('dv1_t2', 'dv5_t2')], na.rm = T)
+```
+
+Full scale for T2
+```{r}
+both_dataa %>% 
+  mutate(fullpeerdv_t2 = rowMeans(select(., dv1_t2:dv6_t2), na.rm = T)) %>% 
+  select(dv1_t2:dv6_t2, fullpeerdv_t2)
+
+both_dataa <- both_dataa %>% 
+  mutate(fullpeerdv_t2 = rowMeans(select(., dv1_t2:dv6_t2), na.rm = T))
+```
+
+
+# Group Mean Centering
+To make these scores relative to ones group, we will now group-mean center our peer-reported variables. 
+```{r}
+both_dataa <- both_dataa %>% 
+  group_by(groupnum) %>% 
+  mutate(groupmeanpeerdv_t1 = mean(peerdv_t1, na.rm = T), 
+         groupmeanpeerdv_t2 = mean(peerdv_t2, na.rm = T), 
+         groupmeanpre_t1 = mean(peerpret1, na.rm = T),
+         groupmeanpre_t2 = mean(peerpret2, na.rm = T),
+         groupmeandom_t1 = mean(peerdomt1, na.rm = T),
+         groupmeandom_t2 = mean(peerdomt2, na.rm = T),
+         groupmeansocial_t1 = mean(peersocial_t1, na.rm = T),
+         groupmeansocial_t2 = mean(peersocial_t2, na.rm = T),
+         groupmeancontri_t1 = mean(peercontri_t1, na.rm = T),
+         groupmeancontri_t2 = mean(peercontri_t2, na.rm = T),
+         groupmeandef_t1 = mean(peerdefer_t1, na.rm = T),
+         groupmeandef_t2 = mean(peerdefer_t2, na.rm = T),
+         ) %>% 
+  ungroup() %>% 
+  mutate(gcpeerdv_t1 = peerdv_t1 - groupmeanpeerdv_t1, 
+         gcpeerdv_t2 = peerdv_t2-groupmeanpeerdv_t2,
+         gcpre_t1 = peerpret1-groupmeanpre_t1,
+         gcpre_t2 = peerpret2-groupmeanpre_t2,
+         gcdom_t1 = peerdomt1-groupmeandom_t1,
+         gcdom_t2 = peerdomt2-groupmeandom_t2,
+         gcsocial_t1 = peersocial_t1-groupmeansocial_t1,
+         gcsocial_t2 = peersocial_t2-groupmeansocial_t2,
+         gccontri_t1 = peercontri_t1-groupmeancontri_t1,
+         gccontri_t2 = peercontri_t2-groupmeancontri_t2,
+         gcdef_t1 = peerdefer_t1-groupmeandef_t1,
+         gcdef_t2 = peerdefer_t2-groupmeandef_t2)  
+
+```
+
+Let's just check and see how that worked
+```{r}
+gctest <- both_dataa %>% 
+  filter(studynum == 2) %>% 
+  select(groupnum, rater, target, gcpeerdv_t1, peerdv_t1, groupmeanpeerdv_t1) %>% 
+  arrange(groupnum, target) %>% 
+  head(150)
+#View(gctest) #worked as expected
+```
+
+And group mean centering the full scale dv
+```{r}
+both_dataa <- both_dataa %>% 
+  group_by(groupnum) %>% 
+  mutate(groupmeanfullpeerdv_t1 = mean(fullpeerdv_t1, na.rm = T),
+         groupmeanfullpeerdv_t2 = mean(fullpeerdv_t2, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(gcfullpeerdv_t1 = fullpeerdv_t1 - groupmeanfullpeerdv_t1,
+         gcfullpeerdv_t2 = fullpeerdv_t2 - groupmeanfullpeerdv_t2)
+```
+
+
+Finally, we will need to create target level variables, as we will use these for attrition analyses and a few other analyses. 
+```{r}
+both_dataa <- both_dataa %>% 
+  group_by(target) %>% 
+  mutate(group_dv_t1 = mean(peerdv_t1, na.rm = T),
+         group_dom_t1 = mean(peerdomt1, na.rm = T),
+         group_pre_t1 = mean(peerpret1, na.rm = T),
+         group_social_t1 = mean(peersocial_t1, na.rm = T),
+         group_contri_t1 = mean(peercontri_t1, na.rm = T),
+         group_dv_t2 = mean(peerdv_t2, na.rm = T),
+         group_dom_t2 = mean(peerdomt2, na.rm = T),
+         group_pre_t2 = mean(peerpret2, na.rm = T),
+         group_social_t2 = mean(peersocial_t2, na.rm = T),
+         group_contri_t2 = mean(peercontri_t2, na.rm = T)) %>% 
+  ungroup()
+```
+
+Let's go ahead and group mean-center these target level variables
+```{r}
+group_cent_targets <- both_dataa %>% 
+  group_by(groupnum) %>% 
+  filter(!duplicated(target, .keep_all = T) ) %>% 
+  mutate(groupmeantargetpeerdv_t1 = mean(group_dv_t1, na.rm = T), 
+         groupmeantargetpeerdv_t2 = mean(group_dv_t2, na.rm = T), 
+         groupmeantargetpre_t1 = mean(group_pre_t1, na.rm = T),
+         groupmeantargetpre_t2 = mean(group_pre_t2, na.rm = T),
+         groupmeantargetdom_t1 = mean(group_dom_t1, na.rm = T),
+         groupmeantargetdom_t2 = mean(group_dom_t2, na.rm = T),
+         groupmeantargetsocial_t1 = mean(group_social_t1, na.rm = T),
+         groupmeantargetsocial_t2 = mean(group_social_t2, na.rm = T),
+         groupmeantargetcontri_t1 = mean(group_contri_t1, na.rm = T),
+         groupmeantargetcontri_t2 = mean(group_contri_t2, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(gcgroupdv_t1 = group_dv_t1 - groupmeantargetpeerdv_t1, 
+         gcgroupdv_t2 = group_dv_t2-groupmeantargetpeerdv_t2,
+         gcgrouppre_t1 = group_pre_t1-groupmeantargetpre_t1,
+         gcgrouppre_t2 = group_pre_t2-groupmeantargetpre_t2,
+         gcgroupdom_t1 = group_dom_t1-groupmeantargetdom_t1,
+         gcgroupdom_t2 = group_dom_t2-groupmeantargetdom_t2,
+         gcgroupsocial_t1 = group_social_t1-groupmeantargetsocial_t1,
+         gcgroupsocial_t2 = group_social_t2-groupmeantargetsocial_t2,
+         gcgroupcontri_t1 = group_contri_t1-groupmeantargetcontri_t1,
+         gcgroupcontri_t2 = group_contri_t2-groupmeantargetcontri_t2)  %>% 
+  select(target, starts_with('gcgroup'))
+
+both_dataa <- both_dataa %>% 
+  left_join(group_cent_targets, by = 'target')
+
+```
+
+That concludes all our scale creation. Now we will just compile all the reliabilities into a `tidystats` object for reporting purposes.
+
+# Compiling Reliabilities
+```{r}
+rel <- list()
+
+rel <- rel %>% 
+  add_stats(tidy_stats(jc_sr_dom)) %>%
+  add_stats(tidy_stats(jc_sr_pre_rel)) %>% 
+  add_stats(tidy_stats(ams_sr_dom)) %>% 
+  add_stats(tidy_stats(ams_sr_pre_rel)) %>% 
+  add_stats(tidy_stats(peer_dom_relt1)) %>% 
+  add_stats(tidy_stats(peer_dom_relt2)) %>% 
+  add_stats(tidy_stats(peer_pre_relt1)) %>% 
+  add_stats(tidy_stats(peer_pre_relt2)) 
+
+```
+
+
+# Updating Target-level Data
+
+We also want all these new scales to be added to our target-level database, so we will update that data frame, too.
+```{r}
+both_datat <- both_dataa %>% 
+  group_by(target) %>% 
+  distinct(target, .keep_all = T) 
+
+```
+
+
+---- FILE: 04 Demographics and Descriptives.Rmd ----
+---
+title: "04 Demographics and Descriptives"
+author: 
+output: word_document
+---
+
+This provides the demographics and descriptives information we need for the manuscript.
+
+
+# Sample and Demographics
+In the following section, we explore the data and get the dataa descriptives table. Before we get the sample Ns, etc. we will need to make a variable in our `both_dataa` data frame that specifies whether a target participated in the study. 
+
+```{r}
+both_dataa$rater_or_not <- ifelse((both_dataa$target %in% self_reports$target), 1, 0)
+
+#checking that this worked as anticipated
+both_dataa %>% 
+  distinct(target, .keep_all = T) %>% 
+  filter(rater_or_not == 1) %>% 
+  nrow() #yes it did
+```
+
+Let's create a similar variable for whether a target completed the T2 survey
+```{r}
+#first create a list of people who completed T2
+self_reports <- self_reports %>% 
+  mutate(complete_t2 = ifelse((!is.na(tipi_1) | !is.na(tipi_10)), 1, 0)) #create as a variable in the self_reports dataframe
+
+t2_respondants <- self_reports %>% 
+  filter(complete_t2 == 1) 
+
+both_dataa$rater_or_not_t2 <- ifelse((both_dataa$target %in% t2_respondants$target), 1, 0)
+```
+
+## Sample sizes
+In the main text, we focus only on people who completed the correct social rank measure. We will focus on them for our sample size calculations. 
+```{r sample_sizes_t1}
+#first we'll need to know how many respondants completed the correct measure
+self_reports_good <- self_reports %>% 
+  filter(studynum == 2)
+
+good_n_t1 <- both_dataa %>%
+  filter(studynum == 2) %>% 
+  summarise(total_obs_t1 = n(),
+            num_groups_t1 = n_distinct(groupnum),
+            num_targets_t1 = n_distinct(target),
+            num_raters_t1 = nrow(self_reports_good)) %>% 
+  mutate(resp_rate_t1 = round(num_raters_t1/num_targets_t1*100, 2))
+  
+```
+
+Sample size at T2
+```{r}
+#do the same thing, but first we filter to see who has data about them at T2. This gives us the # of targets
+
+t2_respondants_good <- t2_respondants %>% 
+  filter(studynum == 2)
+
+good_n_t2 <- both_dataa %>% 
+  filter(studynum == 2) %>% 
+  filter(!is.na(peerdv_t2)) %>% #of the people who have peer ratings for T2...
+  summarise(total_obs_t2 = n(), 
+            num_groups_t2 = n_distinct(groupnum),
+            num_targets_t2 = n_distinct(target),
+            num_raters_t2 = nrow(t2_respondants_good)) %>% 
+  mutate(resp_rate_t2 = round(num_raters_t2/(good_n_t1$num_targets_t1)*100, 2),
+         retention = round(num_raters_t2/good_n_t1$num_raters_t1*100, 2))
+
+#let's combine these for simplicity
+n <- cbind(good_n_t1, good_n_t2)
+
+print(n)
+```
+
+Fantastic. Now let's get demographic information
+
+## Demographics
+First let's get the average age for respondents.
+```{r age}
+##demographic information (about raters)
+age <- self_reports_good %>% 
+  filter(!duplicated(target)) %>%
+  summarise(mean = mean(age, na.rm = T), sd = sd(age, na.rm = T))
+  
+age <- round(age, 2)
+```
+
+Now we will look at gender of respondents.
+```{r gender}
+gender_N <- self_reports_good %>% 
+  count(gender)
+gender_N
+ptc_female <- gender_N$n[gender_N$gender=='Female']/as.numeric(n$num_raters_t1)*100
+ptc_female 
+```
+
+Let's also get the N's for those who only completed the one-item deference measure vs. those who completed the full six-item scale (and the one-item DV)
+```{r percentage_study1}
+n_by_wave <- both_dataa %>% 
+  group_by(studynum) %>% 
+  summarise(n_obs = n(),
+            n_targets = n_distinct(target))
+n_raters_by_wave <- self_reports %>% 
+  group_by(studynum) %>% 
+  summarise(n_raters = n())
+
+n_by_wave <- cbind(n_by_wave,n_raters_by_wave[,2])
+                     
+```
+
+Great. Now I'll created a dataset that is just the people with the correct measure of social rank. We will use this in the remainder of our analyses (with the exception of some in the supplemental materials). 
+
+```{r}
+dataa <- both_dataa %>% 
+  filter(studynum == 2)
+```
+
+
+
+# Sample Robustness Tests
+Let's check to compare:
+1. Whether the sample who responded to the survey is similar to those who did not (respondent bias)
+2. Whether he sample who responded at T1 only is similar to those who completed both waves (attrition)
+
+## Respondent Bias
+First let's make our "respondent or not" variable into a factor
+```{r}
+dataa$rater_or_not <- factor(dataa$rater_or_not, levels = c(0,1), labels = c('Non-response', "Response")) 
+```
+
+Now we will run t-tests to see if any of the central variables differed for respondent vs. non-respondents
+```{r}
+#first let's filter this so targets aren't duplicated
+resp_data <- dataa %>% 
+  filter(!duplicated(target))
+
+#significance testing
+resp_domt1 <- t.test(group_dom_t1 ~ rater_or_not, data = resp_data)
+resp_domt2 <- t.test(group_dom_t2 ~ rater_or_not, data = resp_data)
+resp_pret1 <- t.test(group_pre_t1 ~ rater_or_not, data = resp_data)
+resp_pret2 <- t.test(group_pre_t2 ~ rater_or_not, data = resp_data)
+resp_dvt1 <- t.test(group_dv_t1 ~ rater_or_not, data = resp_data)
+resp_dvt2 <- t.test(group_dv_t2 ~ rater_or_not, data = resp_data)
+resp_gend <- chisq.test(resp_data$gender, resp_data$rater_or_not)
+
+#now we compile this to add into out methods section
+resp_bias <- list()
+resp_bias <- resp_bias %>% 
+  add_stats(resp_domt1) %>% 
+  add_stats(resp_domt2) %>% 
+  add_stats(resp_pret1) %>% 
+  add_stats(resp_pret2) %>%
+  add_stats(resp_dvt1) %>%
+  add_stats(resp_dvt2) %>% 
+  add_stats(resp_gend)
+
+```
+
+
+## Attrition
+Now we'll look at whether the sample who responded at T1 was significantly different from those who responded at T2.  First let's make our T2 "respondent or not" variable into a factor.
+```{r}
+self_reports_good$complete_t2 <- factor(self_reports_good$complete_t2, levels = c(0,1), labels = c('Non-response', "Response")) 
+```
+
+Now we can complete the t-tests
+```{r}
+
+#t-test
+attr_domt1 <- t.test(group_dom_t1 ~ complete_t2, data = self_reports_good) 
+attr_domt2 <- t.test(group_dom_t2 ~ complete_t2, data = self_reports_good) 
+attr_pret1 <- t.test(group_pre_t1 ~ complete_t2, data = self_reports_good) 
+attr_pret2 <- t.test(group_pre_t2 ~ complete_t2, data = self_reports_good) 
+attr_dvt1 <- t.test(group_defer_t1 ~ complete_t2, data = self_reports_good)
+attr_dvt2 <- t.test(group_defer_t2 ~ complete_t2, data = self_reports_good)
+attr_gend <- chisq.test(as.numeric(self_reports_good$complete_t2), as.numeric(self_reports_good$gender)) 
+attr_age <- t.test(age ~ complete_t2, data = self_reports_good)
+
+
+#compile this to write into methods section
+attrition <- list()
+attrition <- attrition %>% 
+  add_stats(attr_domt1) %>% 
+  add_stats(attr_domt2) %>% 
+  add_stats(attr_pret1) %>% 
+  add_stats(attr_pret2) %>%
+  add_stats(attr_dvt1) %>%
+  add_stats(attr_dvt2) %>% 
+  add_stats(attr_age) %>% 
+  add_stats(attr_gend)
+
+```
+
+
+# Descriptives
+Let's also look at the zero-order correlations. We will make a version of this table for the paper in another markdown file, but this will give us a peak here.
+
+For this to be accurate, we need to remember to make the `peerdv_t1` and `peerdv_t2` variables NA for everyone who didn't complete the six-item measure of social rank. 
+```{r}
+dataa <- dataa %>% 
+  mutate(peerdv_t1 = ifelse(dataa$studynum == 2, dataa$peerdv_t1, NA),
+         peerdv_t2 = ifelse(dataa$studynum == 2, dataa$peerdv_t2, NA)) 
+```
+
+Now produce the correlation table:
+```{r}
+dataa <- dataa %>% 
+  mutate(gender_corr = as.numeric(gender))
+
+descriptives <- dataa %>% 
+  select(peerdv_t1, peerdomt1, peerpret1, peersocial_t1, peercontri_t1, peerdv_t2, peerdomt2, peerpret2, peersocial_t2, peercontri_t2, gender_corr)
+Hmisc::rcorr(as.matrix(descriptives))
+```
+
+
+
+
+
+---- FILE: 06 Self-Report Models.Rmd ----
+---
+title: "06 Self-Report Models"
+author: 
+output: word_document
+---
+
+# Self-Report Models
+In additional to the peer-report models in the main text, we were interested in whether self-reported dominance and prestige predicted peer-reported social rank. Here we look at target-level self-reports of dominance and prestige as they predict peer-reported social rank scores aggregated to the target level. These target-level variables will be group mean centered . We will run these analyses with dominance and prestige strategies (using the Joey Cheng scales) and dominance and prestige motivation (using the Achievement Motivation Scale).
+
+First we'll need to make a dataset that is just one row per self report target. We did this before, but we want to make sure that we've captured all the latest changes to the data.
+```{r}
+self_reports <- both_dataa %>% 
+  filter(!is.na(jcheng_1) | !is.na(jcheng_10) | !is.na(jcheng_14)) %>% 
+  distinct(target, .keep_all = T)
+
+#what is the n?
+self_reports %>% 
+  filter(studynum == 2) %>% 
+  nrow()
+```
+
+
+## Dominance and Prestige Strategies
+First we will look at the Joey Cheng scales at T1.
+```{r}
+#build model
+jc_self_model_t1 <- lm(gcgroupdv_t1 ~ jcpreself + jcdomself + gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(jc_self_model_t1) 
+
+#format it for write-up
+model_jc_t1_results <- tidy(jc_self_model_t1, conf.int = T)
+```
+
+Cool, and now let's do T2
+```{r jc_self_models at T2}
+#build model
+jc_self_model_t2 <- lm(gcgroupdv_t2 ~ jcpreself + jcdomself + gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(jc_self_model_t2) 
+
+#format for write-up
+model_jc_t2_results <- tidy(jc_self_model_t2, conf.int = T)
+```
+Ok, and now let's look at the longitudinal model
+```{r jc_self_models change over time}
+#build model
+jc_self_model_3 <- lm(gcgroupdv_t2 ~ gcgroupdv_t1 + jcpreself + jcdomself +  gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(jc_self_model_3) 
+
+#format for write-up 
+model_jc_t3_results <- tidy(jc_self_model_3, conf.int = T)
+```
+
+
+
+## Dominance and Prestige Motivation
+Now we will run the same models but with dominance and prestige motivation from the AMS. We again will start with the T1 cross-sectional model.
+```{r ams_self_models at T1}
+ams_self_model_t1 <- lm(gcgroupdv_t1 ~ amspreself + amsdomself + gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(ams_self_model_t1) 
+
+model_ams_t1_results <- tidy(ams_self_model_t1, effects = c('fixed', 'ran_pars'), conf.int = T)
+```
+Now the T2 cross-sectional model. 
+```{r ams_self_models T2}
+ams_self_model_t2 <- lm(gcgroupdv_t2 ~ amspreself + amsdomself + gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(ams_self_model_t2)
+
+model_ams_t2_results <- tidy(ams_self_model_t2, conf.int = T)
+```
+
+Now predicting longitudinal changes in social rank
+```{r ams_self_models at T2}
+ams_self_model_3 <- lm(gcgroupdv_t2 ~ gcgroupdv_t1 + amspreself + amsdomself + gcgroupcontri_t1 + gcgroupsocial_t1 + gender + prop_f_rater, data = self_reports)
+summary(ams_self_model_3) 
+
+model_ams_t3_results <- tidy(ams_self_model_3, conf.int = T)
+```
+ 
+ 
+ 
+We will also see if our primary models hold while controlling for self-report measures. We will start with self-reported dominance strategies
+```{r}
+#T1
+model_1_w_sr <- lmer(gcpeerdv_t1 ~ gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + jcpreself + jcdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_1_w_sr) #results are consistent; self reports are not significant
+
+#T2
+model_2_w_sr <- lmer(gcpeerdv_t2 ~ gcpre_t2 + gcdom_t2 + gcsocial_t2 + gccontri_t2 + gender + rater_gender + jcpreself + jcdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_2_w_sr) #results are consistent; self reports are not significant
+
+#longitudinal
+model_3_w_sr <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1 + gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + jcpreself + jcdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_3_w_sr)  #results are consistent; self reports are not significant
+```
+
+Now we will run the same models but controlling for dominance and prestige motivation
+```{r}
+#T1
+model_1_w_ams <- lmer(gcpeerdv_t1 ~ gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_1_w_ams) #results are consistent; self report pres is not significant but dom is positive
+
+#T2
+model_2_w_ams <- lmer(gcpeerdv_t2 ~ gcpre_t2 + gcdom_t2 + gcsocial_t2 + gccontri_t2 + gender + rater_gender + amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_2_w_ams) #results are consistent; self report pres is negative and self-report dom is significant
+
+#longitudinal
+model_3_w_ams <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1 + gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_3_w_ams)  #results are consistent; self report pres is negative and self-report dom is marg significant
+```
+
+What if we just add all measure together in the same model?
+```{r}
+#T1
+model_1_all_sr <- lmer(gcpeerdv_t1 ~ gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + jcpreself + jcdomself + amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_1_all_sr) #results are consistent; self-reported ams dom is positive; self-reports jc dom is negative; self-reported prestige is not significant
+
+#T2
+model_2_all_sr <- lmer(gcpeerdv_t2 ~ gcpre_t2 + gcdom_t2 + gcsocial_t2 + gccontri_t2 + gender + rater_gender + jcpreself + jcdomself + amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_2_all_sr) #results are consistent; ams self-reported prest is significant negative; ams dom is positive
+
+#longitudinal
+model_3_all_sr <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1 + gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + jcpreself + jcdomself +  amspreself + amsdomself + (1|target) + (1|rater), REML=T, data=dataa)
+summary(model_3_all_sr)  #results are consistent; ams self-reported prest is significant negative; ams dom is positive
+```
+
+
+---- FILE: 07 TIPI Analyses.Rmd ----
+---
+title: "07 TIPI Analyses"
+author: 
+output: word_document
+---
+
+#TIPI
+Let's see whether our results are robust when controlling for the Big Five. 
+
+First, for what percentage of the full sample do we have self-reported Big Five data?
+```{r}
+tipi_obs <- dataa %>% 
+  filter(!is.na(neuro) | !is.na(extra)) %>% 
+  nrow()
+
+tipi_targets <- dataa %>% 
+  filter(!is.na(neuro) | !is.na(extra)) %>% 
+  filter(!duplicated(target)) %>% 
+  nrow()
+
+
+```
+
+Testing models that control for the Big Five
+```{r}
+#Model 1
+tipi_model_1<- lmer(gcpeerdv_t1 ~ gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + extra + neuro + conscien + open + agree + (1|target) + (1|rater), REML=T, data=both_dataa)
+summary(tipi_model_1) 
+
+#Model 2
+tipi_model_2 <- lmer(gcpeerdv_t2 ~ gcpre_t2 + gcdom_t2 + gcsocial_t2 + gccontri_t2 + gender + rater_gender + extra + neuro + conscien + open + agree + (1|target) + (1|rater), REML=T, data=both_dataa)
+summary(tipi_model_2)
+
+#Model 3
+tipi_model_3 <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1 + gcpre_t1 + gcdom_t1 + gcsocial_t1 + gccontri_t1 + gender + rater_gender + extra + neuro + conscien + open + agree +(1|target) + (1|rater), REML=T, data=both_dataa)
+summary(tipi_model_3)
+```
+
+Save the result for the table
+```{r}
+model_tipi_t1_results <- tidy(tipi_model_1, effects = c('fixed', 'ran_pars'), conf.int = T)
+model_tipi_t2_results <- tidy(tipi_model_2, effects = c('fixed', 'ran_pars'), conf.int = T)
+model_tipi_t3_results <- tidy(tipi_model_3, effects = c('fixed', 'ran_pars'), conf.int = T)
+```
+
+
+
+---- FILE: 08 Social Relations Model.Rmd ----
+---
+title: "08 Social Relations Model"
+author: 
+output: word_document
+---
+
+
+## Social Relations Model (SRM)
+Given the round robin nature of the data, we will also explore the hypothesized relationships with the Social Relations Model. This technique accounts for all levels of nesting in round-robin data. However, it can only be used for groups with 4 or more raters, which means we cannot use it for much of our sample. 
+
+Using SRM requires a little bit of data restructuring. Notably, we need to have the raters perception of the target and the target's perception of the rater in the same row. To do this, we need to pull out the round-robin component, make a rater copy, make a target copy, and then rejoin.
+
+### Restructuring the Data
+```{r}
+#Let's get the round robin portion
+round_robin <- both_dataa %>%
+  select(rater, target, groupnum, peerdomt1, peerdomt2, peerpret1, peerpret2, peercontri_t1, peercontri_t2, peersocial_t1, peersocial_t2, peerdv_t1, peerdv_t2, peerdefer_t1, peerdefer_t2) 
+```
+
+Now we'll split into target-focused and rater-focused versions. We rename the variables so they can be complimentary when they merge. 
+```{r}
+rr_rater <- round_robin %>%
+  select(rater, target, groupnum, 
+         r_rates_t_dom_t1 = peerdomt1, 
+         r_rates_t_dom_t2 = peerdomt2, 
+         r_rates_t_pre_t1 = peerpret1, 
+         r_rates_t_pre_t2 = peerpret2, 
+         r_rates_t_dv_t1 = peerdv_t1, 
+         r_rates_t_dv_t2 = peerdv_t2, 
+         r_rates_t_contri_t1 = peercontri_t1, 
+         r_rates_t_contri_t2 = peercontri_t2, 
+         r_rates_t_social_t1 = peersocial_t1, 
+         r_rates_t_social_t2 = peersocial_t2, 
+         r_rates_t_defer_t1 = peerdefer_t1, 
+         r_rates_t_defer_t2 = peerdefer_t2)
+rr_reverse <- round_robin %>%
+  select(rater_as_target = rater, target, groupnum, 
+         t_rates_r_dom_t1 = peerdomt1, 
+         t_rates_r_dom_t2 = peerdomt2, 
+         t_rates_r_pre_t1 = peerpret1, 
+         t_rates_r_pre_t2 = peerpret2, 
+         t_rates_r_dv_t1 = peerdv_t1, 
+         t_rates_r_dv_t2 = peerdv_t2, 
+         t_rates_r_contri_t1 = peercontri_t1,  
+         t_rates_r_contri_t2 = peercontri_t2, 
+         t_rates_r_social_t1 = peersocial_t1, 
+         t_rates_r_social_t2 = peersocial_t2, 
+         t_rates_r_defer_t1 = peerdefer_t1, 
+         t_rates_r_defer_t2 = peerdefer_t2)
+rr_reverse$rater_as_target_dup <- as.character(rr_reverse$rater_as_target)
+```
+Now we will join rater to target to add the target's perceptions of the rater
+```{r}
+rr_rater$target_dup <- as.character(rr_rater$target)
+
+
+rr <- rr_rater %>%
+  full_join(rr_reverse, by = c("target_dup" = "rater_as_target_dup"), suffix = c("", "_rater"))  %>%  
+  filter((as.character(target_rater) == as.character(rater) )| is.na(target_rater)| is.na(rater)) 
+```
+
+
+Now we'll just trim a bit for our tripler dataset. (TripleR is the package that we use to do SRM.)
+```{r}
+triplerdata <- rr %>%
+  select(-target_rater, -rater_as_target, -groupnum_rater)
+
+
+```
+
+I am unclear on why this is, but tripler throws an error if I use the dataset as is.  For some reason, if I save it as a csv first and then run the analyses, it works (?)
+```{r}
+write.csv(triplerdata, 'triplerdata.csv', row.names = F)
+triplerdata_b <- read.csv('triplerdata.csv')
+
+```
+
+
+Now that we have our data source we can run the Triple R SRM analyses. Let's start by looking at the sample
+```{r}
+RR.summary(r_rates_t_defer_t1 ~rater*target | groupnum, data = triplerdata_b) 
+RR.summary(r_rates_t_defer_t2 ~rater*target | groupnum, data = triplerdata_b) 
+
+
+RR.summary(r_rates_t_dv_t1 ~rater*target | groupnum, data = triplerdata_b)
+RR.summary(r_rates_t_dv_t2 ~rater*target | groupnum, data = triplerdata_b) 
+```
+
+Great, now we can look at the degree to which raters, targets, or the relationship can explain the variance. 
+```{r}
+#T1 Dominance
+dom_rr <- RR(r_rates_t_dom_t1 ~ rater*target | groupnum, na.rm = T, verbose = F, data = triplerdata_b)
+print(dom_rr, measure='perception') 
+
+#Time 2
+dom_rr_t2 <- RR(r_rates_t_dom_t2 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(dom_rr_t2, measure='perception') 
+```
+
+Next, we'll look at the variance in prestige
+```{r}
+#Time 1
+pre_rr <- RR(r_rates_t_pre_t1 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(pre_rr, measure='perception') 
+
+#Time 2
+pre_rr_t2 <- RR(r_rates_t_pre_t2 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(pre_rr_t2, measure='perception') 
+```
+...And the variance in competence...
+```{r}
+#Time 1
+contri_rr <- RR(r_rates_t_contri_t1 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(contri_rr, measure='perception') 
+
+#Time 2
+contri_rr_t2 <- RR(r_rates_t_contri_t2 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(contri_rr_t2, measure='perception') 
+```
+
+...And the variance in social affinity...
+```{r}
+#Time 1
+social_rr <- RR(r_rates_t_social_t1 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(social_rr, measure='perception') 
+
+#Time 2
+social_rr_t2 <- RR(r_rates_t_social_t2 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(social_rr_t2, measure='perception') 
+```
+
+...And finally, variance in social rank
+```{r}
+#Time 1
+dv_rr <- RR(r_rates_t_dv_t1 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(dv_rr, measure='perception') 
+
+#Time 2
+dv_rr_t2 <- RR(r_rates_t_dv_t2 ~ rater*target | groupnum, na.rm = T,verbose = F, data = triplerdata_b)
+print(dv_rr_t2, measure='perception') 
+```
+
+Now that we have an estimate of that, we can run the models from the main text while looking just the target variance (this essentially looks at what the group agrees upon about each target). To do this we first need to pull out the target effects into a data frame.
+```{r}
+#making effects df for prestige
+pres_rr_effect <- pre_rr$effects
+pres_rr_effect$id<- as.character(pres_rr_effect$id)
+
+#making effects df for prest (t2)
+pres_rr_effect_t2 <- pre_rr_t2$effects
+pres_rr_effect_t2$id<- as.character(pres_rr_effect_t2$id)
+
+#making an effects df for dom
+dom_rr_effect <- dom_rr$effects
+dom_rr_effect$id<- as.character(dom_rr_effect$id)
+
+#making an effects df for dom (t2)
+dom_rr_effect_t2 <- dom_rr_t2$effects
+dom_rr_effect_t2$id<- as.character(dom_rr_effect_t2$id)
+
+#making an effects df for dv 
+dv_rr_effect <- dv_rr$effects
+dv_rr_effect$id<- as.character(dv_rr_effect$id)
+
+#making an effects df for dv (t2)
+dv_rr_effect_t2 <- dv_rr_t2$effects
+dv_rr_effect_t2$id<- as.character(dv_rr_effect_t2$id)
+
+#making an effects df for competence
+contri_rr_effect <- contri_rr$effects
+contri_rr_effect$id<- as.character(contri_rr_effect$id)
+
+#making an effects df for competence (t2)
+contri_rr_effect_t2 <- contri_rr_t2$effects
+contri_rr_effect_t2$id<- as.character(contri_rr_effect_t2$id)
+
+#making an effects df for social
+social_rr_effect <- social_rr$effects
+social_rr_effect$id<- as.character(social_rr_effect$id)
+
+#making an effects df for social
+social_rr_effect_t2 <- social_rr_t2$effects
+social_rr_effect_t2$id<- as.character(social_rr_effect_t2$id)
+
+```
+Now we'll merge the effects data frames with the original data frame. We'll start by joining the two time points and renaming the variables (longer process, but less confusing)
+```{r}
+#prestige
+pres_effects_df <- pres_rr_effect %>%
+  full_join(pres_rr_effect_t2, by = c('id'='id'), suffix = c('_t1', '_t2')) %>%
+  select(-group.id_t2) 
+  
+names(pres_effects_df) <- c("id", "group_id", 'pres_r_effect_t1', 'pres_t_effect', 'pres_r_effect_t2', 'pres_t_effect_t2')
+
+#dominance
+dom_effects_df <- dom_rr_effect %>%
+  full_join(dom_rr_effect_t2, by = c('id'='id'), suffix = c('_t1', '_t2')) %>%
+  select(-group.id_t2) 
+  
+names(dom_effects_df) <- c("id", "group_id", 'dom_r_effect_t1', 'dom_t_effect', 'dom_r_effect_t2', 'dom_t_effect_t2')
+
+#dv
+dv_effects_df <- dv_rr_effect %>%
+  full_join(dv_rr_effect_t2, by = c('id'='id'), suffix = c('_t1', '_t2')) %>%
+  select(-group.id_t2) 
+
+names(dv_effects_df) <- c("id", "group_id", 'dv_r_effect_t1', 'dv_t_effect', 'dv_r_effect_t2', 'dv_t_effect_t2')
+
+#contri
+contri_effects_df <- contri_rr_effect %>%
+  full_join(contri_rr_effect_t2, by = c('id'='id'), suffix = c('_t1', '_t2')) %>%
+  select(-group.id_t2) 
+  
+names(contri_effects_df) <- c("id", "group_id", 'contri_r_effect_t1', 'contri_t_effect', 'contri_r_effect_t2', 'contri_t_effect_t2')
+
+#social
+social_effects_df <- social_rr_effect %>%
+  full_join(social_rr_effect_t2, by = c('id'='id'), suffix = c('_t1', '_t2')) %>%
+  select(-group.id_t2) 
+  
+names(social_effects_df) <- c("id", "group_id", 'social_r_effect_t1', 'social_t_effect', 'social_r_effect_t2', 'social_t_effect_t2')
+
+```
+Great, now we can join these three data frames to the original round robin data frames.
+```{r}
+data_w_target_effects <- rr %>%
+  full_join(dom_effects_df, by = c('target'= 'id')) %>%
+  full_join(pres_effects_df, by = c('target' = 'id')) %>%
+  full_join(dv_effects_df, by = c('target' = 'id')) %>%
+  full_join(contri_effects_df, by = c('target' = 'id')) %>% 
+  full_join(social_effects_df, by = c('target' = 'id')) %>%
+  filter(!is.na(group_id.x))
+
+data_w_target_effects %>% 
+  select(rater, target, groupnum, dom_t_effect_t2) %>% 
+  arrange(target)
+names(data_w_target_effects)
+
+data_w_target_effects_b <- data_w_target_effects %>% 
+  filter(!duplicated(target))
+```
+
+Let's put the gender in. We'll need target gender and--because this has all raters aggregated to the target level--the proportion of female raters.
+```{r}
+targetgend <- both_dataa %>% 
+  filter(!duplicated(target)) %>% 
+  select(target, gender, prop_f_rater)
+
+data_w_target_effects_gend <- data_w_target_effects_b %>% 
+  left_join(targetgend, by = 'target') 
+```
+
+
+Now we can run the models controlling for gender
+```{r}
+#Model 1: T1 dom and prest predict t1 social rank
+srm_model_1gend <- lm(dv_t_effect ~ pres_t_effect + dom_t_effect +  social_t_effect + contri_t_effect + gender + prop_f_rater, data = data_w_target_effects_gend)
+summary(srm_model_1gend) 
+
+#Model 2: T2 dom and prest predict t2 social rank
+srm_model_2gend <- lm(dv_t_effect_t2 ~ pres_t_effect_t2 + dom_t_effect_t2 + social_t_effect_t2 + contri_t_effect_t2 + gender + prop_f_rater, data = data_w_target_effects_gend)
+summary(srm_model_2gend) 
+
+#Model 3: T1 dom and prest predict t2 social rank controlling for t1 social rank
+srm_model_3gend <- lm(dv_t_effect_t2 ~ dv_t_effect + pres_t_effect + dom_t_effect + social_t_effect + contri_t_effect + gender + prop_f_rater, na.action = na.omit, data = data_w_target_effects_gend)
+
+summary(srm_model_3gend) 
+```
+
+We'll tidy these for our tables
+```{r}
+model_srm_t1_results <- tidy(srm_model_1gend, conf.int = T)
+model_srm_t2_results <- tidy(srm_model_2gend, conf.int = T)
+model_srm_t3_results <- tidy(srm_model_3gend, conf.int = T)
+```
+
+
+Now let's look at descriptives for that part:
+```{r}
+data_w_target_effects %>% 
+  group_by(rater) %>%
+  summarise(n()) 
+dataa %>%
+  filter(!is.na(peerdv_t2)) %>%
+  group_by(rater) %>%
+  summarise(n()) 
+dataa %>%
+  filter(!is.na(peerdv_t1)) %>%
+  group_by(rater) %>%
+  summarise(n())
+```
+
+
+---- FILE: 09 Additional Gender Analyses.Rmd ----
+---
+title: "10 Additional Gender Analyses"
+author: 
+output: word_document
+---
+
+
+We would like to conduct some additional gender analyses. First, we will test for gender differences in key variables (and make those into a table for the Supplemental Materials). Next, we will test dominance X gender and prestige X gender interactions on social rank. 
+
+
+# Gender T-test
+Let's make a table with all of the main variables of interest by gender.
+
+```{r}
+#first run all the t-tests
+gt1 <- t.test(gcdom_t1 ~ gender, data = both_dataa)
+gt2 <- t.test(gcpre_t1 ~ gender, data = both_dataa)
+gt3 <- t.test(gcsocial_t1 ~ gender, data = both_dataa)
+gt4 <- t.test(gccontri_t1 ~ gender, data = both_dataa)
+gt5 <- t.test(gcdef_t1 ~ gender, data = both_dataa)
+gt6 <- t.test(gcpeerdv_t1 ~ gender, data = both_dataa)
+gt7 <- t.test(gcdom_t2 ~ gender, data = both_dataa)
+gt8 <- t.test(gcpre_t2 ~ gender, data = both_dataa)
+gt9 <- t.test(gcsocial_t2 ~ gender, data = both_dataa)
+gt10 <- t.test(gccontri_t2 ~ gender, data = both_dataa)
+gt11 <- t.test(gcdef_t2 ~ gender, data = both_dataa)
+gt12 <- t.test(gcpeerdv_t2 ~ gender, data = both_dataa)
+gt13 <- t.test(jcdomself ~ gender, data = self_reports)
+gt14 <- t.test(jcpreself ~ gender, data = self_reports)
+gt15 <- t.test(amsdomself ~ gender, data = self_reports)
+gt16 <- t.test(amspreself ~ gender, data = self_reports)
+
+#And make them into a data frame with labels in an intuitive order
+gendervars <- data.frame('Item' = c('T1 Dominance', 'T1 Prestige', 'T1 Social Affinity', 'T1 Competence', 'T1 Deference', 'T1 Social Rank','T2 Dominance', 'T2 Prestige', 'T2 Social Affinity', 'T2 Competence', 'T2 Deference', 'T2 Social Rank', 'Self-Reported Dominance', 'Self-Reported Prestige', 'Self-Reported Dominance Motivation', 'Self-Reported Prestige Motivation'), 'Sort' = c(3, 4, 5, 6, 1, 2, 9, 10, 11, 12, 7, 8, 13, 14, 15, 16))
+```
+
+
+
+# Gender interactions
+First, center relevant variables
+```{r}
+both_dataa_cent <- both_dataa %>% 
+  select(-contains('_cent')) %>% 
+  mutate_at(vars(contains('gc')), .funs = list(cent = ~scale(., center = T, scale = F)[,])) %>% 
+  select(-contains('_scales_cent'), -contains('gcgroup'))
+
+dataa_cent <- dataa %>% 
+  select(-contains('_cent')) %>% 
+  mutate_at(vars(contains('gc')), .funs = list(cent = ~scale(., center = T, scale = F)[,])) %>% 
+  select(-contains('_scales_cent'), -contains('gcgroup'))
+```
+
+## T1 cross-sectional
+Build the model with the interactions
+```{r}
+model_gend_t1 <- lmer(gcpeerdv_t1 ~  gcpre_t1_cent*gender + gcdom_t1_cent*gender + gcsocial_t1_cent + gccontri_t1_cent + rater_gender + (1|target) + (1|rater), REML = T, data= dataa_cent)
+summary(model_gend_t1)
+model_gend_t1_results <- tidy(model_gend_t1, effects = c('fixed', 'ran_pars'), conf.int = T)
+```
+
+## T2 cross-sectional
+```{r}
+model_gend_t2 <- lmer(gcpeerdv_t2 ~ gcpre_t2_cent*gender +gcdom_t2_cent*gender + gcsocial_t2_cent + gccontri_t2_cent + rater_gender + (1|target) + (1|rater), REML = T, data= dataa_cent)
+summary(model_gend_t2)
+model_gend_t2_results <- tidy(model_gend_t2, effects = c('fixed', 'ran_pars'), conf.int = T)
+simple_slopes(model_gend_t2)
+```
+
+There is a marginally significant interaction, so we will probe the simple slopes
+```{r}
+#getting simple slope
+model_gend_t2_simp_slope <- data.frame(reghelper::simple_slopes(model_gend_t2))
+names(model_gend_t2_simp_slope) <- c('dom', 'gender', 'est', 'se', 't')
+#we'll need to get p-values manually
+#https://stats.stackexchange.com/questions/315311/how-to-find-p-value-using-estimate-and-standard-error
+model_gend_t2_simp_slope <- model_gend_t2_simp_slope %>% 
+  mutate(z = est/se,
+         p = pnorm(abs(z), lower.tail = F))
+
+
+model_gend_2_simp_slope_table <- model_gend_t2_simp_slope %>% 
+  mutate(effect_at = c('Low Dominance', 'Mean Dominance', 'High Dominance', 'Women', 'Men'), 
+         lowerci = round(est - 1.96*se, 2),
+         upperci = round(est + 1.96*se, 2),
+         est = round(est, 2),
+         t = round(t, 2),
+         p = printp(p)
+         ) %>% 
+  select(effect_at, est, lowerci, upperci, t, p)
+
+#getting estimates by gender
+mylist <- list(gcdomt2_cent=c(
+  (describe(dataa_cent$gcdom_t2_cent)$mean - describe(dataa_cent$gcdom_t2_cent)$sd),
+  (describe(dataa_cent$gcdom_t2_cent)$mean), 
+  (describe(dataa_cent$gcdom_t2_cent)$mean + describe(dataa_cent$gcdom_t2_cent)$sd)),
+  gender=c("Female","Male")) #we'd like estimates at one standard deviation above and below the mean
+
+model_gend_t2_simp <- data.frame(emtrends(model_gend_2, ~ gender, var="gcdom_t2_cent"))
+model_gend_t2_means  <- emmeans(model_gend_t2, ~ gcdom_t2_cent*gender, at=mylist)
+
+
+#let's get the simple slopes to plot
+dom_interaction_ss <- emmip(model_gend_t2, gender ~gcdom_t2_cent ,at = list(gcdom_t2_cent = c(
+  (describe(dataa_cent$gcdom_t2_cent)$mean - describe(dataa_cent$gcdom_t2_cent)$sd),
+  (describe(dataa_cent$gcdom_t2_cent)$mean), 
+  (describe(dataa_cent$gcdom_t2_cent)$mean + describe(dataa_cent$gcdom_t2_cent)$sd))
+  ), CIs = T, plotit = F)
+
+ggplot(data = dom_interaction_ss, aes(x = gcdom_t2_cent, y=yvar, color = gender))+
+  geom_line() + 
+  geom_ribbon(aes(ymax=UCL, ymin=LCL, fill=gender), alpha=0.25)+
+  labs(x = "T2 Group Mean-Centered Dominance", 
+       y = "T2 Group-Mean Centered Social Rank", 
+       fill = "Target Gender", 
+       color = "Target Gender") +
+  theme_apa()
+```
+
+## Longitudinal change in social rank
+```{r}
+model_gend_3 <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1_cent +  gcpre_t1_cent*gender + gcdom_t1_cent*gender + gcsocial_t1_cent + gccontri_t1_cent + rater_gender +(1|target) + (1|rater), REML = T, data= dataa_cent)
+summary(model_gend_3)
+
+model_gend_3_results <- tidy(model_gend_3, effects = c('fixed', 'ran_pars'), conf.int = T)
+```
+
+Probe the simple slopes
+```{r}
+#getting simple slope
+model_gend_3_simp_slope <- data.frame(reghelper::simple_slopes(model_gend_3))
+names(model_gend_3_simp_slope) <- c('pre', 'gender', 'est', 'se', 't')
+#get p values
+
+model_gend_3_simp_slope <- model_gend_3_simp_slope %>% 
+  mutate(z = est/se,
+         p = pnorm(abs(z), lower.tail = F))
+
+model_gend_3_simp_slope_table <- model_gend_3_simp_slope %>% 
+  mutate(effect_at = c('Low Prestige', 'Mean Prestige', 'High Prestige', 'Women', 'Men'), 
+         lowerci = round(est - 1.96*se, 2),
+         upperci = round(est + 1.96*se, 2),
+         est = round(est, 2),
+         t = round(t, 2),
+         p = printp(p)) %>% 
+  select(effect_at, est, lowerci, upperci, t, p)
+
+#getting estimates by gender
+mylist <- list(gcpret3_cent=c(
+  (describe(dataa_cent$gcpre_t1_cent)$mean - describe(dataa_cent$gcpre_t1_cent)$sd),
+  (describe(dataa_cent$gcpre_t1_cent)$mean), 
+  (describe(dataa_cent$gcpre_t1_cent)$mean + describe(dataa_cent$gcpre_t1_cent)$sd)),
+  gender=c("Female","Male"))
+
+model_gend_3_simp <- data.frame(emtrends(model_gend_3, ~ gender, var="gcpre_t1_cent"))
+model_gend_3_means  <- emmeans(model_gend_3, ~ gcpre_t1_cent*gender, at=mylist)
+
+
+
+#save simple slopes as a dataset
+pre_interaction_ss <- emmip(model_gend_3, gender ~gcpre_t1_cent, at = list(gcpre_t1_cent=c(
+  (describe(dataa_cent$gcpre_t1_cent)$mean - describe(dataa_cent$gcpre_t1_cent)$sd),
+  (describe(dataa_cent$gcpre_t1_cent)$mean), 
+  (describe(dataa_cent$gcpre_t1_cent)$mean + describe(dataa_cent$gcpre_t1_cent)$sd))
+  ), CIs = T, plotit = F)
+
+ggplot(data = pre_interaction_ss, aes(x = gcpre_t1_cent, y=yvar, color = gender))+
+  geom_line() + 
+  geom_ribbon(aes(ymax=UCL, ymin=LCL, fill=gender), alpha=0.25)+
+  labs(x = "T1 Group Mean-Centered Prestige", 
+       y = "Changes in Group-Mean Centered Social Rank", 
+       fill = "Target Gender", 
+       color = "Target Gender") +
+  theme_apa()
+
+```
+
+
+
+---- FILE: 10 Curvilinear Models.Rmd ----
+---
+title: "11 Curvilinear Models"
+author: 
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Let's look at the curvilinear effects of dominance on social rank
+```{r}
+#creating the squared term
+both_dataa <- both_dataa %>% 
+  mutate(dom_t1_sq = gcdom_t1*gcdom_t1, 
+         dom_t2_sq = gcdom_t2*gcdom_t2)
+```
+
+```{r}
+#Model 1
+curve_model_1<- lmer(gcpeerdv_t1 ~ gcpre_t1 + gcdom_t1 + dom_t1_sq + gcsocial_t1 + gccontri_t1 + gender + rater_gender + (1|target) + (1|rater), REML=T, data=both_dataa)
+summary(curve_model_1) 
+
+#Model 2
+curve_model_2 <- lmer(gcpeerdv_t2 ~ gcpre_t2 + gcdom_t2 + dom_t1_sq + gcsocial_t2 + gccontri_t2 + gender + rater_gender + (1|target) + (1|rater), REML=T, data=both_dataa)
+summary(curve_model_2)
+
+#Model 3
+curve_model_3 <- lmer(gcpeerdv_t2 ~ gcpeerdv_t1 + gcpre_t1 + gcdom_t1 + dom_t1_sq + gcsocial_t1 + gccontri_t1 + gender + rater_gender +(1|target) + (1|rater), REML=T, data=both_dataa)
+summary(curve_model_3)
+
+```
+
+And we can tidy this up for our tables
+```{r}
+model_curve_t1_results <- tidy(curve_model_1, effects = c('fixed', 'ran_pars'), conf.int = T)
+model_curve_t2_results <- tidy(curve_model_2, effects = c('fixed', 'ran_pars'), conf.int = T)
+model_curve_t3_results <- tidy(curve_model_3, effects = c('fixed', 'ran_pars'), conf.int = T)
+```
+
+
+
+
+
+---- FILE: 11 Power Calculation.Rmd ----
+---
+title: "Power Calculation"
+
+output: html_document
+---
+
+```{r}
+#setting a seed so the results are the same every time
+set.seed(42)
+
+```
+
+We're going to conduct a post-hoc sensitivity analysis on our existing data. This will allow us to see how small of an effect our sample was able to reliably detect (given our modeling choices. We will adapt the methods from the SOM here for this type of post-hoc analysis: https://www.sciencedirect.com/science/article/abs/pii/S0001879120300725?via%3Dihub
+
+First we will get a trimmed, cleaned version of our data without any missing data
+```{r}
+test_data <- dataa %>% 
+  select(gcpeerdv_t1, gcpre_t1, gcdom_t1, gcsocial_t1, gccontri_t1, gender, rater_gender, target, rater)
+test_data <- na.omit(test_data)
+
+#same thing for T2
+test_data_t2 <- dataa %>% 
+  select(gcpeerdv_t1, gcpre_t1, gcdom_t2, gcsocial_t2, gccontri_t2, gender, rater_gender, target, rater)
+test_data_t2 <- na.omit(test_data_t2)
+
+```
+
+Then we need to set up our variances
+```{r}
+#setting up the variances
+v.rater <- .228 #these are based on the results of our ICCs
+v.target <- .225
+v.res <- 1-v.rater-v.target
+
+#and the variances for T2
+v.rater.t2 <- .354
+v.target.t2 <- .315
+v.res.t2 <- 1-v.rater.t2-v.target.t2
+```
+Now we'll set up models with these variances (and a few other parameters which we will define)
+```{r}
+#setting up other stuff
+s <- sqrt(v.res)
+v2 <- list(v.rater, v.target)
+
+#t2
+s.t2 <- sqrt(v.res.t2)
+v2.t2 <- list(v.rater.t2, v.target.t2)
+
+#now we set up models with this information. We will just vary the size of the fixed effects so we can test and see which are ~80% power 
+minfixed10 <- makeLmer(y ~ gcdom_t1 + (1|rater) + (1|target), fixef = c(0, .10), VarCorr = v2, sigma = s, data = test_data) #note: we tell it to give us the power for dominance, but it doesn't really matter which term we pick because we are telling it the strength of the fixed effect 
+
+minfixed <- makeLmer(y ~ gcdom_t1 + (1|rater) + (1|target), fixef = c(0, .01), VarCorr = v2, sigma = s, data = test_data) 
+
+minfixed05 <- makeLmer(y ~ gcdom_t1 + (1|rater) + (1|target), fixef = c(0, .05), VarCorr = v2, sigma = s, data = test_data)
+
+minfixed06 <- makeLmer(y ~ gcdom_t1 + (1|rater) + (1|target), fixef = c(0, .06), VarCorr = v2, sigma = s, data = test_data)
+
+minfixed07 <- makeLmer(y ~ gcdom_t1 + (1|rater) + (1|target), fixef = c(0, .07), VarCorr = v2, sigma = s, data = test_data)
+
+
+
+#now that we have an estimate for T1, we will do the same process (but with a better starting point) for T2
+minfixed01t2 <- makeLmer(y ~ gcdom_t2 + (1|rater) + (1|target), fixef = c(0, .01), VarCorr = v2.t2, sigma = s.t2, data = test_data_t2)
+
+minfixed06t2 <- makeLmer(y ~ gcdom_t2 + (1|rater) + (1|target), fixef = c(0, .06), VarCorr = v2.t2, sigma = s.t2, data = test_data_t2)
+
+minfixed07t2 <- makeLmer(y ~ gcdom_t2 + (1|rater) + (1|target), fixef = c(0, .07), VarCorr = v2.t2, sigma = s.t2, data = test_data_t2)
+```
+
+Now we will run 1000 simulations on each of these models to determine the power. I usually start with 10 simuluations each to make sure things are working then ramp up to 1000 (because it takes quite a while to run)
+```{r}
+#T1 simulations
+fixed_dom_10 <- powerSim(minfixed10, test = fixed('gcdom_t1', method='f'), nsim = 1000)
+print(fixed_dom_10) 
+
+fixed_dom_01 <- powerSim(minfixed, test = fixed('gcdom_t1', method='f'), nsim = 1000) 
+print(fixed_dom_01)
+lastResult()$errors
+
+fixed_dom_05 <- powerSim(minfixed05, test = fixed('gcdom_t1', method='f'), nsim = 1000)
+print(fixed_dom_05)
+
+fixed_dom_06 <- powerSim(minfixed06, test = fixed('gcdom_t1', method='f'), nsim = 1000)
+print(fixed_dom_06)
+
+fixed_dom_07 <- powerSim(minfixed07, test = fixed('gcdom_t1', method='f'), nsim = 1000)
+print(fixed_dom_07)
+
+
+#T2 simulations
+fixed_dom_01_t2 <- powerSim(minfixed01t2, test = fixed('gcdom_t2', method='f'), nsim = 1000)
+print(fixed_dom_01_t2)
+
+fixed_dom_06_t2 <- powerSim(minfixed06t2, test = fixed('gcdom_t2', method='f'), nsim = 1000)
+print(fixed_dom_06_t2)
+
+fixed_dom_07_t2 <- powerSim(minfixed07t2, test = fixed('gcdom_t2', method='f'), nsim = 1000)
+print(fixed_dom_07_t2)
+```
+
+
+---- FILE: 12 Methods.Rmd ----
+---
+title: "12 Methods"
+author: 
+output: word_document
+---
+
+# Method
+**Participants and Procedure** 
+Participants came from eight sections of a required leadership course in a Masters of Business Administration (MBA) program at a private university^[Students admitted to this program have an average of five years of work experience.]. This course is taken by MBA students immediately upon matriculation; the structure and content of the course is virtually identical across all sections. Students took an expedited version of the course in which they attended two weeks of intensive lectures and then completed a group project in the month following the lecture period. The group project consisted of collecting data and compiling it into a 10-page report, which required the students to work together extensively. Participants were randomly assigned to project groups by their professor. 
+
+Data collection took place at two time points that capture social hierarchy dynamics at initial group formation and then after subsequent interactions. The first time point was at the beginning of the group project. At this point, participants had worked together as a group for approximately 1-2 hours (having collaborated on a 45-minute in-class exercise and a 1-page out-of-class assignment), so group members were familiar with each other, but had limited experience working as a group. The second wave of data collection took place at the completion of the group project four weeks later. Participants received a $25 Amazon gift card and a personalized leadership report upon completion of the study. 
+
+The sample size was determined by the size of the MBA classes; we invited all `r n$num_targets_t1` students in these classes to participate. Of these, `r n$num_raters_t1` participants completed the survey at Time 1 (hereafter termed T1; for a participation rate of `r n$resp_rate_t1`%) and `r n$num_raters_t2` participants completed the survey at Time 2 (hereafter termed T2; for a final participation rate of `r n$resp_rate_t2`% and a retention rate of `r n$retention`%)^[A post-hoc power sensitivity analysis suggested that after accounting for the random intercepts at the rater and target levels, our T1 sample could detect a fixed effect of β = .06 with 81.30% power (95% CI: 78.72, 83.67) or a fixed effect of β = .06 with 92.40% power (95% CI: 90.58, 93.97).]. Participants were embedded in `r n$num_groups_t1` mixed-gender groups of 5-6 students. The sample of respondents was `r round(ptc_female[1],2)`% female (`r gender_N$n[gender_N$gender=='Female'][1]` women, `r printnum(gender_N$n[gender_N$gender=='Male'][1])` men). The average age was `r age$mean` years (SD = `r age$sd`). Due to the round-robin nature of the data (in which participants answered questions about every member of their group), our study provides peer-reported data about all `r n$num_targets_t1` people who were invited to participate (including those who did not participate in the study, but were only evaluated by others). Due to targets receiving ratings from multiple group members, there were a total of `r n$total_obs_t1` observations at Time 1, and `r n$total_obs_t2` observations at Time 2.^[See Supplemental Materials for attrition analyses and comparisons of respondents vs. non-respondents. ],^[We do not have consent to publicly share participants’ data. All materials and the code used to conduct all analyses are available at https://osf.io/2nb6x/?view_only=ec3b9d594ce54c2094c1ece6556d641a. ],^[An additional 185 students participated in a version of our study that included the deference (but not the social rank) dependent variable. When predicting deference in this larger sample, results were virtually identical to those reported here.]
+
+**Measures**
+```{r echo=F, message=F}
+options <- options(tidystats_list = rel)
+```
+
+
+__Peer-Reported Dominance and Prestige.__ At both T1 and T2, participants reported their perceptions of group members’ dominance and prestige strategies(Cheng et al., 2013, 2010). Group members rated how much they thought each statement described each of their group members on a scale from 1 (“Not at All”) to 7 (“Very Much”). Prestige items were “Others seek his/her advice on a variety of matters,” “His unique talents/abilities are recognized by other members of the group,” and “He/she is considered an expert on some matters by others” (T1 α = `r printnum(peer_pre_relt1$total$std.alpha)`; T2 α = `r printnum(peer_pre_relt2$total$std.alpha)`)^[Participants responded to an additional item (“Members of your group respect and admire him/her”), but we were concerned that this item was too conceptually similar to our social rank dependent variable and there was some evidence of cross-loading, so we omitted it from the scale. See the Supplemental Materials for factor analyses. ]. Dominance items were “He/she often tries to get his/her own way regardless of what others in the group may want”, “He/she enjoys having control over other members of the group”, and “He/she is willing to use aggressive tactics to get his/her way”, and "He/she tries to control others rather than permit them to control him/her” (T1 α = `r printnum(peer_dom_relt1$total$std.alpha)`; T2 α = `r printnum(peer_dom_relt2$total$std.alpha)`).
+
+__Peer-Reported Social Rank.__ T1 and T2 peer-rated social rank were measured as continuous variables for each group member. Participants reported the extent to which they agreed with each of the following statements on a 7-point scale: “This person has relatively strong influence within the group” and “This person leads the group” (T1 _r_ = `r printnum(dv_corr_t1$r)`, `r reportp(dv_corr_t1$p)`; T2 _r_ = `r printnum(dv_corr_t2$r)`, `r reportp(dv_corr_t2$p)`)^[Participants were asked four additional items about group members’ rank within the group, but we were concerned that these items conceptually overlapped with dominance or prestige strategies. Thus, we chose to focus on the two items from the scale that have been previously used to measure social rank (e.g., Cheng et al., 2013; Redhead et al., 2019; Brand & Mesoudi, 2019) and that are most agnostic to type of social rank. Factor analyses confirmed that this trimmed social rank measure was empirically distinct from the dominance and prestige measures. Results with all six items are consistent with our two-item scale (see Supplemental Materials for these results, factor analyses, and full materials). ]. 
+
+__Control Variables.__ Participants rated each group member on their perceived competence (“This person makes valuable work-related contributions to the group”) and social affinity (“I think I would enjoy spending time with this person socially”) at both time points (Joshi & Knight, 2014). Questions were answered on a scale from 1 (‘Very Strongly Disagree’) to 7 (‘Very Strongly Agree’). 
+
+__Other Measures.__ In addition to the variables mentioned above, participants reported on their demographic characteristics (including gender, age, and industry/field of work prior to their MBA) and completed self-reported measures of dominance and prestige at T1 and group identification and subjective group performance at T2. We focus on peer-reports rather than self-reports of dominance and prestige because peer-reports are a more valid method of measuring dominance and prestige (Cheng et al., 2010). Results with self-report measures (reported in the Supplemental Materials) show that self-reported prestige and dominance do not consistently relate to peer-reported social rank^[Participants reported group identification and subjective group performance (which were outside the scope of this study) and Big Five personality measures at T2. Results held after controlling for the Big Five (see Supplemental Materials).].
+
+**Analysis Strategy**    
+The round-robin nature of our study yielded a nested data structure. To account for non-independence within both raters and targets, we used multilevel modeling with a random intercept term for both the rater and the target, per the recommendation of Judd, Westfall, and Kenny (2012). This accounts for the nested structure of the data by allowing the intercept of the model to be estimated separately for each rater and target.^[The social relations model (SRM) would be the typical analytical approach for round-robin data (Kenny & La Voie, 1984), but its lack of flexibility with missing data make this a suboptimal analytic option for our data. SRM can only be estimated in groups with four or more respondents (Kenny, Kashy, & Cook, 2006), so the use of this approach would reduce our sample size at T2 from `r printnum(n$total_obs_t2)` observations to `r printnum(nrow(dv_rr_t2$effectsRel))` observations (eliminating `r printnum((1-(nrow(dv_rr_t2$effectsRel))/n$total_obs_t2)*100)`% of our data). Despite this, we report SRM analyses in the Supplemental Materials. Results are largely similar to those in the main text, with the caveat that prestige—but not dominance—predicts significant changes in social rank over time using this method. This may be attributable to the substantially smaller sample size in these SRM results.]
+
+Targets and raters were also nested within projects groups. However, intraclass correlations indicated that very little variance in social rank was due to clustering at the group level^[`r printnum(icc(icc_group)$ICC_adjusted*100)`% of the variance in T1 social rank was at the group level, versus `r printnum(icc(icc_target)$ICC_adjusted*100)`% and `r printnum(icc(icc_rater)$ICC_adjusted*100)`% were at the target and rater levels, respectively. ], so we did not model clustering at the group level in order to maintain statistical power. However, we were interested in participants’ _relative_ position within their groups, so we group-mean centered all peer-rated variables (social rank, dominance, prestige, and social affinity, and competence; Snijders & Bosker, 1999). 
+ 
+Because significance testing is not appropriate for random effects in multilevel modeling (Bates et al., 2015), we do not report p-values on variance estimates. We estimated random intercepts—and not random intercepts—because our main research questions did not involve the variability of effects across groups. 
+	Our main analyses focus on peer-reported dominance and prestige as they predict social rank at T1, T2, and changes in social rank over time, as well as changes in deference over time (all while controlling for perceived competence, social affinity, and gender). We also test whether social affinity and competence mediate changes in social rank and deference over time. In the Supplemental Materials, we report exploratory analyses addressing curvilinear effects of dominance and moderation by gender. 
+
+
+---- FILE: 13 Results.Rmd ----
+---
+title: "13 Results"
+author: 
+output: word_document
+---
+
+# Results
+
+__Predicting Time 1 Social Rank Cross-Sectionally __
+Descriptive statistics and correlations among study variables are in Table 1. We first modeled Time 1 social rank as a function of Time 1 perceptions of dominance and prestige, while controlling for peer-rated social affinity and competence, as well as target and rater gender. All random and fixed effects from all non-mediational models are in Table 2. 
+Peer-rated dominance and prestige were both positively related to peer-rated social rank at T1, above and beyond the positive effects of social affinity and competence. Rater gender was marginally associated with social rank, with female raters ascribing targets higher social rank than male raters. 
+
+We also tested whether the relationship between prestige and social rank at Time 1 was significantly stronger than the relationship between dominance and social rank at Time 1. We did this by testing whether constraining the dominance and prestige parameters to be equal significantly reduced model fit (per a chi-square difference test; Bentler & Satorra, 2010). Forcing these parameters to be equal did not significantly reduce model fit, indicating that prestige was not a significantly stronger (or weaker) predictor of social rank at T1 than was dominance 
+ (Δ χ2 = `r printnum(model_t1_equality_results$statistic[2])`, _p_ = `r printp(model_t1_equality_results$p.value[2])`). 
+
+
+__Predicting Time 2 Social Rank Cross-Sectionally__
+We next predicted T2 social rank from T2 peer-reports of dominance, prestige, social affinity, and competence (again controlling for target and rater gender and including random effects for the intercept at target and rater levels). 
+
+Similar to the T1 results, T2 dominance and prestige were both positively associated with T2 social rank, even when controlling for T2 social affinity and T2 competence (both of which were also positively related to T2 social rank). Rater gender was not associated with T2 perceived social rank, but male targets had marginally lower social rank than female targets. Thus, even after extended interaction across a four-week period, individuals who were regarded as higher in dominance or prestige were seen as having significantly higher social rank than those who were lower on dominance and prestige. 
+
+We again used a nested model comparison to test whether dominance or prestige was a significantly stronger predictor of social rank at T2. Prestige was a marginally stronger predictor of social rank at T2 than was dominance (Δ χ2 = `r printnum(model_t2_equality_results$statistic[2])`, _p_ `r printp(model_t2_equality_results$p.value[2])`). 
+
+
+__Predicting Changes in Social Rank Longitudinally__
+In our third model, we predicted T2 social rank as a function of T1 dominance and prestige while controlling for T1 social rank. This model tests changes in social rank over the course of the project (cf. Bendersky & Shah, 2012; DeRue et al., 2015). This model included the same controls and random intercepts as prior models. As can be seen in Table 2, T1 social rank significantly predicted T2 social rank, consistent with prior work demonstrating stability in social rank (e.g., Redhead et al., 2019; Savin-Williams, 1976). Furthermore, we found that both T1 prestige and T1 dominance positively predicted increases in social rank over time. Thus, individuals regarded as high in dominance or prestige tended to experience increases in social rank over the course of the study, compared to less dominant or prestige-based peers. 
+
+While not hypothesized, we also found an effect of target gender over time: men, relative to women, were significantly less likely to gain social rank over the course of the study. We found no significant effect of rater gender on changes in social rank.
+
+In the Supplemental Materials, we report analyses testing whether the effects above were moderated by gender. Some (but not all) models indicated that the effects of prestige and dominance on social rank were somewhat stronger for men (compared to women). This may be because women who were low on prestige (and/or dominance) tended to have higher social rank than men who were low on prestige (and/or dominance). Nonetheless, the key effects reported above were not unique to either gender: dominance and prestige had a positive effect on social rank for both men and women. 
+
+__Predicting Changes in Deference Longitudinally__
+As a contrast to our social rank measure, we tested whether dominance and prestige at T1 predicted gains in deference over time. Full results for this model are in Table 2. Prestige significantly predicted gains in deference over time. In contrast, and as predicted, dominance did not significantly predict gains in deference over time. Thus, prestige led to gains in both social rank and deference over time, whereas dominance led to gains in social rank but not deference over time. We also found that social affinity was a significant predictor of gains in deference over time whereas it was not a significant predictor of social rank over time. These are consistent with our theorizing that social rank and deference represent two distinct constructs with distinct predictors and correlates. 
+
+__Mediation Models__
+We tested whether the impact of dominance and prestige on gains in social rank were mediated by deference. We completed these analyses using a Bayesian MCMC framework in Mplus. We tested the indirect effects of both T1 prestige on T2 social rank through T2 deference, and T1 dominance on T2 social rank through T2 deference. We retained the same control variables as in prior analyses.
+
+There was a significant positive indirect effect of T1 prestige on social rank through deference (_b_ = .07, 95% CI [.02, .11]). This is consistent with our expectation that prestige led to gains in social rank over time in part because group members deferred more to individuals who adopted a prestige-based strategy. 
+
+In contrast, there was a significant negative indirect effect of T1 dominance on social rank through deference, such that T1 dominance was associated with decreases in deference over time, and lower deference was associated with decrements in social rank over time (_b_ = -.04, 95% CI [-.07, -.01]). Thus, T1 dominance led to gains in social rank despite T1 dominance being associated with lower deference at T2. 
+
+
+---- FILE: 14 Tables.Rmd ----
+---
+title: "14 Tables"
+author: 
+output: word_document
+---
+
+# Table 1
+Correlation/descriptives table 
+```{r echo=F, message=F}
+model_t1_results
+descriptives <- both_dataa %>% 
+  select(peerdefer_t1, peerdv_t1, peerdomt1, peerpret1, peersocial_t1, peercontri_t1, peerdefer_t2, peerdv_t2, peerdomt2, peerpret2, peersocial_t2, peercontri_t2,)
+apa.cor.table(descriptives, filename = 'mba_corr_table.doc', show.conf.interval = F)
+
+```
+
+
+# Table 2
+Results table for the MLM results
+```{r echo=F}
+#First we will stack together the results from all the models
+model_t1_results <- model_t1_results %>% 
+  mutate(model = 1)
+model_t2_results <- model_t2_results %>% 
+  mutate(model = 2)
+model_t3_results <- model_t3_results %>% 
+  mutate(model = 3)
+
+full_scale_results <- model_t1_results %>% 
+  rbind(model_t2_results, model_t3_results)
+
+round(std_beta(model_1)$std.estimate, 2)
+mod1betas <- std_beta(model_1)
+
+round(std_beta(model_2)$std.estimate, 2)
+mod2betas <- std_beta(model_2)
+
+round(std_beta(model_3)$std.estimate, 2)
+mod3betas <- std_beta(model_3)
+```
+
+Now let's see what we can do to clean this up
+```{r echo=F}
+#let's get the labels into English
+fs_fixed_terms = c('T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender',
+                   'T2 Prestige', 'T2 Dominance', 'T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank', 'T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender')
+
+#clean up fixed effects
+fs_fixed_table <- full_scale_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = paste('[', printnum(conf.low), ', ', printnum(conf.high), ']', sep = '')) %>% 
+  select(model, term, estimate, confint, p.value, effect) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms)
+
+
+#clean up random effects
+fs_random_table <- full_scale_results %>% 
+  filter(is.na(p.value)) %>% 
+  mutate(term = ifelse(group == 'target', 'Target Intercept', 
+                       ifelse(group == 'rater', 'Rater Intercept', NA)),
+         confint = '',
+         p.value = '',
+         estimate2 = printnum(estimate^2)) %>% #broom gives us the standardized variance (i.e., the standard deviation), but we are going to report the variance, so we will square the variance
+  filter(!is.na(term)) %>% 
+  select(model, term, estimate = estimate2, confint, p.value, effect)
+
+#put them back together
+fs_table <- fs_fixed_table %>% 
+  rbind(fs_random_table)
+fs_table <- fs_table %>% 
+  arrange(model, desc(effect)) %>% 
+  select(-effect)
+
+
+```
+
+Now we will kable this
+```{r}
+knitr::kable(fs_table, row.name = F)
+```
+
+
+
+Deference Results for Table 2
+```{r echo=F}
+#First we will stack together the results from all the models
+model_def_t1_results <- model_def_t1_results %>% 
+  mutate(model = 1)
+model_def_t2_results <- model_def_t2_results %>% 
+  mutate(model = 2)
+model_def_t3_results <- model_def_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_def_t1_betas <- std_beta(model_def_t1) %>% 
+  select(term, std.estimate) 
+model_def_t1_results <- model_def_t1_results %>% 
+  left_join(model_def_t1_betas, by = "term")
+
+
+model_def_t2_betas <- std_beta(model_def_t2) %>% 
+  select(term, std.estimate) 
+model_def_t2_results <- model_def_t2_results %>% 
+  left_join(model_def_t2_betas, by = "term")
+
+
+model_def_t3_betas <- std_beta(model_def_t3) %>% 
+  select(term, std.estimate) 
+model_def_t3_results <- model_def_t3_results %>% 
+  left_join(model_def_t3_betas, by = "term")
+
+#And bind them together
+def_results <- model_def_t1_results %>% 
+  rbind(model_def_t2_results, model_def_t3_results)
+
+#let's also get the info for our graphs
+defmod1betas <- std_beta(model_def_t1)
+defmod2betas <- std_beta(model_def_t2)
+defmod3betas <- std_beta(model_def_t3)
+
+```
+
+Now let's see what we can do to clean this up
+```{r echo=F}
+#label the terms
+fs_fixed_terms_defer = c('T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender',
+                   'T2 Prestige', 'T2 Dominance', 'T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Deference', 'T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+def_fixed_table <- def_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value, effect) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_defer)
+  
+
+
+#clean up random effects
+def_random_table <- def_results %>% 
+  filter(is.na(p.value)) %>% 
+  mutate(term = ifelse(group == 'target', 'Target Intercept', 
+                       ifelse(group == 'rater', 'Rater Intercept', NA)),
+         confint = '',
+         p.value = '',
+         estimate2 = printnum(estimate^2)) %>% #again, changing from SD to variance by squaring
+  filter(!is.na(term)) %>% 
+  select(model, term, estimate = estimate2, confint, std.estimate, p.value, effect) %>% 
+  mutate(std.estimate = "")
+
+#put them back together
+def_table <- def_fixed_table %>% 
+  rbind(def_random_table)
+def_table <- def_table %>% 
+  arrange(model, desc(effect)) %>% 
+  select(-effect)
+
+
+```
+
+#let's kable this
+```{r}
+knitr::kable(def_table, row.name = F)
+```
+
+
+
+---- FILE: 15 Supplemental Tables.Rmd ----
+---
+title: "15 Supplemental Tables"
+author: 
+output: word_document
+---
+
+
+Six-Item Social Rank Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_full_t1_results <- model_full_1_results %>% 
+  mutate(model = 1)
+model_full_t2_results <- model_full_2_results %>% 
+  mutate(model = 2)
+model_full_t3_results <- model_full_3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_full_t1_betas <- std_beta(model_full_1) %>% 
+  select(term, std.estimate) 
+model_full_t1_results <- model_full_t1_results %>% 
+  left_join(model_full_t1_betas, by = "term")
+
+model_full_t2_betas <- std_beta(model_full_2) %>% 
+  select(term, std.estimate) 
+model_full_t2_results <- model_full_t2_results %>% 
+  left_join(model_full_t2_betas, by = "term")
+
+model_full_t3_betas <- std_beta(model_full_3) %>% 
+  select(term, std.estimate) 
+model_full_t3_results <- model_full_t3_results %>% 
+  left_join(model_full_t3_betas, by = "term")
+
+#And bind them together
+full_results <- model_full_t1_results %>% 
+  rbind(model_full_t2_results, model_full_t3_results)
+
+```
+
+Now let's see what we can do to clean this up
+```{r echo=F}
+#label the terms
+fs_fixed_terms_full = c('T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender',
+                   'T2 Prestige', 'T2 Dominance', 'T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank', 'T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+full_table <- full_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_full)
+  
+
+
+```
+
+And kable 
+```{r}
+knitr::kable(full_table, row.name = F)
+```
+
+
+Self-Report Behavior Strategies Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_jc_t1_results <- model_jc_t1_results %>% 
+  mutate(model = 1)
+model_jc_t2_results <- model_jc_t2_results %>% 
+  mutate(model = 2)
+model_jc_t3_results <- model_jc_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_jc_t1_betas <- std_beta(jc_self_model_t1) %>% 
+  select(term, std.estimate) 
+model_jc_t1_results <- model_jc_t1_results %>% 
+  left_join(model_jc_t1_betas, by = "term")
+
+
+model_jc_t2_betas <- std_beta(jc_self_model_t2) %>% 
+  select(term, std.estimate) 
+model_jc_t2_results <- model_jc_t2_results %>% 
+  left_join(model_jc_t2_betas, by = "term")
+
+
+model_jc_t3_betas <- std_beta(jc_self_model_3) %>% 
+  select(term, std.estimate) 
+model_jc_t3_results <- model_jc_t3_results %>% 
+  left_join(model_jc_t3_betas, by = "term")
+
+#And bind them together
+jc_results <- model_jc_t1_results %>% 
+  rbind(model_jc_t2_results, model_jc_t3_results)
+
+```
+
+Now let's see what we can do to clean this up
+```{r echo=F}
+#label the terms
+fs_fixed_terms_jc = c('T1 Prestige Strategy (Self Report)', 'T1 Dominance Strategy (Self Report)', 'T1 Social Affinity (Peer Report)', 'T1 Competence (Peer Report)', 'Target Gender', 'Rater Gender',
+                   'T1 Self-Report Prestige Strategy (Self Report)', 'T1 Self-Report Dominance Strategy (Self Report)', 'T2 Social Affinity (Peer Report)', 'T2 Competence (Peer Report)', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank (Peer Report)', 'T1 Prestige Strategy (Self Report)', 'T1 Self-Report Dominance Strategy (Peer Report)', 'T1 Social Affinity (Peer Report)', 'T1 Competence (Peer Report)', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+jc_table <- jc_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_jc)
+  
+
+
+```
+
+And kable 
+```{r}
+knitr::kable(jc_table, row.name = F)
+```
+
+
+Self-Report Motivation Results Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_ams_t1_results <- model_ams_t1_results %>% 
+  mutate(model = 1)
+model_ams_t2_results <- model_ams_t2_results %>% 
+  mutate(model = 2)
+model_ams_t3_results <- model_ams_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_ams_t1_betas <- std_beta(ams_self_model_t1) %>% 
+  select(term, std.estimate) 
+model_ams_t1_results <- model_ams_t1_results %>% 
+  left_join(model_ams_t1_betas, by = "term")
+
+
+model_ams_t2_betas <- std_beta(ams_self_model_t2) %>% 
+  select(term, std.estimate) 
+model_ams_t2_results <- model_ams_t2_results %>% 
+  left_join(model_ams_t2_betas, by = "term")
+
+
+model_ams_t3_betas <- std_beta(ams_self_model_3) %>% 
+  select(term, std.estimate) 
+model_ams_t3_results <- model_ams_t3_results %>% 
+  left_join(model_ams_t3_betas, by = "term")
+
+#And bind them together
+ams_results <- model_ams_t1_results %>% 
+  rbind(model_ams_t2_results, model_ams_t3_results)
+
+```
+
+cleaning up...
+```{r echo=F}
+#label the terms
+fs_fixed_terms_ams = c('T1 Prestige  (Self Report)', 'T1 Dominance Motivation (Self Report)', 'T1 Social Affinity (Peer Report)', 'T1 Competence (Peer Report)', 'Target Gender', 'Rater Gender',
+                   'T1 Self-Report Prestige Motivation (Self Report)', 'T1 Dominance Motivation (Self Report)', 'T2 Social Affinity (Peer Report)', 'T2 Competence (Peer Report)', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank (Peer Report)', 'T1 Prestige Motivation (Self Report)', 'T1 Dominance Motivation (Self-Report)', 'T1 Social Affinity (Peer Report)', 'T1 Competence (Peer Report)', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+ams_table <- ams_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_ams)
+  
+
+
+```
+
+and finally, kable
+```{r}
+knitr::kable(ams_table, row.name = F)
+```
+
+
+Big Five Results Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_tipi_t1_results <- model_tipi_t1_results %>% 
+  mutate(model = 1)
+model_tipi_t2_results <- model_tipi_t2_results %>% 
+  mutate(model = 2)
+model_tipi_t3_results <- model_tipi_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_tipi_t1_betas <- std_beta(tipi_model_1) %>% 
+  select(term, std.estimate) 
+model_tipi_t1_results <- model_tipi_t1_results %>% 
+  left_join(model_tipi_t1_betas, by = "term")
+
+
+model_tipi_t2_betas <- std_beta(tipi_model_2) %>% 
+  select(term, std.estimate) 
+model_tipi_t2_results <- model_tipi_t2_results %>% 
+  left_join(model_tipi_t2_betas, by = "term")
+
+
+model_tipi_t3_betas <- std_beta(tipi_model_3) %>% 
+  select(term, std.estimate) 
+model_tipi_t3_results <- model_tipi_t3_results %>% 
+  left_join(model_tipi_t3_betas, by = "term")
+
+#And bind them together
+tipi_results <- model_tipi_t1_results %>% 
+  rbind(model_tipi_t2_results, model_tipi_t3_results)
+
+```
+
+clean clean clean
+```{r echo=F}
+#label the terms
+fs_fixed_terms_tipi = c('T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender', "Extraversion", "Neuroticism", "Conscientiousness", "Openness", "Agreeableness",
+                   'T2 Prestige', 'T2 Dominance', 'T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',"Extraversion", "Neuroticism", "Conscientiousness", "Openness", "Agreeableness",
+                   'T1 Social Rank', 'T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender', "Extraversion", "Neuroticism", "Conscientiousness", "Openness", "Agreeableness")
+
+
+#clean up fixed effects
+tipi_fixed_table <- tipi_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value, effect) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_tipi)
+  
+
+
+#clean up random effects
+tipi_random_table <- tipi_results %>% 
+  filter(is.na(p.value)) %>% 
+  mutate(term = ifelse(group == 'target', 'Target Intercept', 
+                       ifelse(group == 'rater', 'Rater Intercept', NA)),
+         confint = '',
+         p.value = '',
+         estimate2 = printnum(estimate^2)) %>% #again, changing from SD to variance by squaring
+  filter(!is.na(term)) %>% 
+  select(model, term, estimate = estimate2, confint, std.estimate, p.value, effect) %>% 
+  mutate(std.estimate = "")
+
+#put them back together
+tipi_table <- tipi_fixed_table %>% 
+  rbind(tipi_random_table)
+tipi_table <- tipi_table %>% 
+  arrange(model, desc(effect)) %>% 
+  select(-effect)
+
+
+```
+
+And kable
+```{r}
+knitr::kable(tipi_table, row.name = F)
+```
+
+
+Social Relations Model Results Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_srm_t1_results <- model_srm_t1_results %>% 
+  mutate(model = 1)
+model_srm_t2_results <- model_srm_t2_results %>% 
+  mutate(model = 2)
+model_srm_t3_results <- model_srm_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_srm_t1_betas <- std_beta(srm_model_1gend) %>% 
+  select(term, std.estimate) 
+model_srm_t1_results <- model_srm_t1_results %>% 
+  left_join(model_srm_t1_betas, by = "term")
+
+
+model_srm_t2_betas <- std_beta(srm_model_2gend) %>% 
+  select(term, std.estimate) 
+model_srm_t2_results <- model_srm_t2_results %>% 
+  left_join(model_srm_t2_betas, by = "term")
+
+
+model_srm_t3_betas <- std_beta(srm_model_3gend) %>% 
+  select(term, std.estimate) 
+model_srm_t3_results <- model_srm_t3_results %>% 
+  left_join(model_srm_t3_betas, by = "term")
+
+#And bind them together
+srm_results <- model_srm_t1_results %>% 
+  rbind(model_srm_t2_results, model_srm_t3_results)
+
+```
+
+Clean up
+```{r echo=F}
+#label the terms
+fs_fixed_terms_srm = c('T1 Prestige', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Prestige', 'T1 Dominance', 'T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank', 'T1 Prestige', 'T1 Dominance ', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+srm_table <- srm_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_srm)
+  
+
+
+```
+
+Now kable
+```{r}
+knitr::kable(srm_table, row.name = F)
+```
+
+
+# Supplemental Table 13
+Gender differences t-test
+```{r}
+# https://stackoverflow.com/questions/44067566/how-to-construct-a-table-from-a-t-test-in-r
+#I'm too lazy to type out those out with commas, so here's a little script to do it
+gttests <- list(paste('gt', seq(1:16), sep = ""))[[1]]
+gttests <- lapply(gttests, function(x) noquote(x))
+paste(gttests, collapse=", ")
+
+
+gendertable <- map_df(list(gt1, gt2, gt3, gt4, gt5, gt6, gt7, gt8, gt9, gt10, gt11, gt12, gt13, gt14, gt15, gt16), tidy)
+gendertable <- gendertable %>% 
+  select(mean_women = estimate1, mean_men = estimate2, t = statistic, p = p.value)
+gendertable <- cbind(gendervars, gendertable)
+gendertable <- gendertable %>% 
+  arrange(Sort) %>% 
+  select(-Sort) %>% 
+  mutate_at(c('mean_women', 'mean_men','t'), round, 2) %>% 
+  mutate(p = printp(p))
+names(gendertable) <- c('', 'Women (M)', 'Men (M)', 't', 'p')
+```
+
+Now let's kable this bad boy.
+```{r}
+knitr::kable(gendertable, row.name = F)
+```
+
+
+
+
+Gender Interactions 
+```{r echo=F}
+#First we will stack together the results from all the models
+model_gend_t1_results <- model_gend_t1_results %>% 
+  mutate(model = 1)
+model_gend_t2_results <- model_gend_t2_results %>% 
+  mutate(model = 2)
+model_gend_t3_results <- model_gend_3_results %>% 
+  mutate(model = 3)
+
+#We're not going to add in standardized betas because this function actually does not compute standardized effects for interactions correctly
+#model_gend_t1_betas <- std_beta(model_gend_t1) %>% 
+#  select(term, std.estimate) 
+#model_gend_t1_results <- model_gend_t1_results %>% 
+#  left_join(model_gend_t1_betas, by = "term")
+#
+#
+#model_gend_t2_betas <- std_beta(model_gend_t2) %>% 
+#  select(term, std.estimate) 
+#model_gend_t2_results <- model_gend_t2_results %>% 
+#  left_join(model_gend_t2_betas, by = "term")
+#
+#
+#model_gend_t3_betas <- std_beta(model_gend_t3) %>% 
+#  select(term, std.estimate) 
+#model_gend_t3_results <- model_gend_t3_results %>% 
+#  left_join(model_gend_t3_betas, by = "term")
+
+#And bind them together
+gend_results <- model_gend_t1_results %>% 
+  rbind(model_gend_t2_results, model_gend_t3_results)
+
+```
+
+This is a little messier to clean up.
+```{r echo=F}
+#label the terms
+fs_fixed_terms_gender = c('T1 Prestige', 'Target Gender', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Rater Gender', 'T1 Prestige x Target Gender', 'T1 Dominance x Target Gender', 
+                   'T2 Dominance', 'Target Gender', 'T2 Prestige', 'T2 Social Affinity', 'T2 Competence', 'Rater Gender','T2 Dominance x Target Gender', 'T2 Prestige x Target Gender',
+                   'T1 Social Rank', 'T1 Prestige', 'Target Gender', 'T1 Dominance', 'T1 Social Affinity', 'T1 Competence', 'Rater Gender', 'T1 Prestige x Target Gender', 'T1 Dominance x Target Gender')
+
+fs_fixed_terms_order = c(1, 5, 2, 3, 4, 6, 7, 8, 10, 13, 9, 11, 12, 14, 16, 15,  17, 18, 22, 19, 20, 21, 23, 24, 25)
+
+
+#clean up fixed effects
+gend_fixed_table <- gend_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]')) %>% 
+         #std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% 
+  select(model, term, estimate, confint, p.value, effect) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_gender, 
+         order = fs_fixed_terms_order) %>% 
+  arrange(order) %>% 
+  select(-order)
+  
+
+
+#clean up random effects
+gend_random_table <- gend_results %>% 
+  filter(is.na(p.value)) %>% 
+  mutate(term = ifelse(group == 'target', 'Target Intercept', 
+                       ifelse(group == 'rater', 'Rater Intercept', NA)),
+         confint = '',
+         p.value = '',
+         estimate2 = printnum(estimate^2)) %>% #again, changing from SD to variance by squaring
+  filter(!is.na(term)) %>% 
+  select(model, term, estimate = estimate2, confint, p.value, effect) 
+
+#put them back together
+gend_table <- gend_fixed_table %>% 
+  rbind(gend_random_table)
+gend_table <- gend_table %>% 
+  arrange(model, desc(effect)) %>% 
+  select(-effect)
+
+
+```
+
+And let's kable it. 
+```{r}
+knitr::kable(gend_table, row.name = F)
+```
+
+For our own reference, we'll make tables with the simple slopes
+```{r}
+knitr::kable(model_gend_2_simp_slope_table)
+knitr::kable(model_gend_3_simp_slope_table)
+```
+
+
+Curvilinear Results Table
+```{r echo=F}
+#First we will stack together the results from all the models
+model_curve_t1_results <- model_curve_t1_results %>% 
+  mutate(model = 1)
+model_curve_t2_results <- model_curve_t2_results %>% 
+  mutate(model = 2)
+model_curve_t3_results <- model_curve_t3_results %>% 
+  mutate(model = 3)
+
+#We'll add in standardized betas 
+model_curve_t1_betas <- std_beta(curve_model_1) %>% 
+  select(term, std.estimate) 
+model_curve_t1_results <- model_curve_t1_results %>% 
+  left_join(model_curve_t1_betas, by = "term")
+
+
+model_curve_t2_betas <- std_beta(curve_model_2) %>% 
+  select(term, std.estimate) 
+model_curve_t2_results <- model_curve_t2_results %>% 
+  left_join(model_curve_t2_betas, by = "term")
+
+
+model_curve_t3_betas <- std_beta(curve_model_3) %>% 
+  select(term, std.estimate) 
+model_curve_t3_results <- model_curve_t3_results %>% 
+  left_join(model_curve_t3_betas, by = "term")
+
+#And bind them together
+curve_results <- model_curve_t1_results %>% 
+  rbind(model_curve_t2_results, model_curve_t3_results)
+
+```
+ 
+Cleaning...
+```{r echo=F}
+#label the terms
+fs_fixed_terms_curve = c('T1 Prestige', 'T1 Dominance', 'T1 Dominance Squared', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender',
+                   'T2 Prestige', 'T2 Dominance', 'T2 Dominance Squared','T2 Social Affinity', 'T2 Competence', 'Target Gender', 'Rater Gender',
+                   'T1 Social Rank', 'T1 Prestige', 'T1 Dominance', 'T1 Dominance Squared', 'T1 Social Affinity', 'T1 Competence', 'Target Gender', 'Rater Gender')
+
+
+#clean up fixed effects
+curve_fixed_table <- curve_results %>% 
+  filter(!is.na(p.value)) %>% 
+  mutate(estimate = printnum(estimate), 
+         p.value = printp(p.value), 
+         confint = glue('[{round(conf.low, 2)}, {round(conf.high, 2)}]'),
+         std.estimate = glue('{sub("0.", ".", sprintf("%.2f", round(std.estimate, 2)))}')) %>% #this will remove the trailing zero, per APA guidelines
+  select(model, term, estimate, confint, std.estimate, p.value, effect) %>%
+  filter(term != '(Intercept)') %>% 
+  mutate(term = fs_fixed_terms_curve)
+  
+
+
+#clean up random effects
+curve_random_table <- curve_results %>% 
+  filter(is.na(p.value)) %>% 
+  mutate(term = ifelse(group == 'target', 'Target Intercept', 
+                       ifelse(group == 'rater', 'Rater Intercept', NA)),
+         confint = '',
+         p.value = '',
+         estimate2 = printnum(estimate^2)) %>% #again, changing from SD to variance by squaring
+  filter(!is.na(term)) %>% 
+  select(model, term, estimate = estimate2, confint, std.estimate, p.value, effect) %>% 
+  mutate(std.estimate = "")
+
+#put them back together
+curve_table <- curve_fixed_table %>% 
+  rbind(curve_random_table)
+curve_table <- curve_table %>% 
+  arrange(model, desc(effect)) %>% 
+  select(-effect)
+
+
+```
+ 
+...and kable-ing
+```{r}
+knitr::kable(curve_table, row.name = F)
+```
+
+
+
+
+---- FILE: Mplus mediation output file.out ----
+Mplus VERSION 8.3
+MUTHEN & MUTHEN
+04/20/2021  12:35 PM
+
+INPUT INSTRUCTIONS
+
+  TITLE: MBA Analyses
+
+  DATA: FILE is "/Users/kaylene/Documents/kaylene/mplus_dataa2.csv"
+  
+  VARIABLE: NAMES ARE target rater grpnum prpret1 prdomt1 prcmpt1 prdeft1 prsoct1 prpret2
+      prdomt2 prcmpt2 prdeft2 prsoct2 grppret1 grpdomt1 grpcmpt1 grpdeft1 grpsoct1 grppret2
+      grpdomt2 grpcmpt2 grpdeft2 grpsoct2 ldr_ynt2 ldr_yn gender rtr_gend age prdvt1 prdvt2
+      grpdvt1 grpdvt2 studynum num_rtrs n_f_rtrs p_f_rtrs jc1t1 jc27t1 jc29t1 jc31t1 jc33t1
+      jc37t1 jc38t1 jc39t1 jc1t2 jc27t2 jc29t2 jc31t2 jc33t2 jc37t2 jc38t2 jc39t2 dv1t1
+      dv2t1 dv3t1 dv4t1 dv5t1 dv6t1 dv1t2 dv2t2 dv3t2 dv4t2 dv5t2 dv6t2 dom1 dom2 pre1
+      dom3 pre2 dom4 dom5 pre3 dom6 pre4 pre5 dom7 pre6 pre7 jcheng1 jcheng2 jcheng3 jcheng4
+      jcheng5 jcheng6 jcheng7 jcheng8 jcheng9 jcheng10 jcheng11 jcheng12 jcheng13 jcheng14
+      jcheng15 jcheng16 jcheng17 tipi_1 tipi_2 tipi_3 tipi_4 tipi_5 tipi_6 tipi_7 tipi_8
+      tipi_9 tipi_10 jchng10r jchng12r jcdomslf jchng2r jchng6r jchng17r jcpreslf amsdom
+      amspre tipi2_r tipi5_r tipi7_r tipi9_r tipi10_r extra neuro conscien open agree
+      prdom1sl prdom2sl flprdvt1 flprdvt2 gmprdvt1 gmprdvt2 gmpret1 gmpret2 gmdomt1 gmdomt2
+      gmsoct1 gmsoct2 gmcmpt1 gmcmpt2 gmdeft1 gmdeft2 gcprdvt1 gcprdvt2 gcpret1 gcpret2
+      gcdomt1 gcdomt2 gcsoct1 gcsoct2 gccmpt1 gccmpt2 gcdeft1 gcdeft2 gmfldvt1 gmfldvt2
+      gcfldvt1 gcfldvt2 grcdvt1 grcdvt2 grcpret1 grcpret2 grcdomt1 grcdomt2 grcsoct1
+      grcsoct2 grccmpt1 grccmpt2 rater_yn rtr_ynt2;
+
+      USEVARIABLES ARE gcprdvt2 gcprdvt1 gcdomt1 gcpret1 gcsoct1 gccmpt1 gcdeft2
+       gender rtr_gend;
+
+      CLUSTER = target rater;
+
+      WITHIN = gcdomt1 gcpret1 gcsoct1 gccmpt1 gcdeft2 gcprdvt1;
+
+      BETWEEN = (target) gender (rater) rtr_gend;
+
+      Missing are .;
+
+  ANALYSIS: TYPE = CROSSCLASSIFIED RANDOM;
+            ESTIMATOR = BAYES;
+            PROCESSORS = 2;
+            BITER = (2000);
+
+  MODEL:
+  %WITHIN%
+  gcprdvt2 on gcdomt1(c1);
+  gcprdvt2 on gcpret1(c2);
+  gcprdvt2 on gcprdvt1 gccmpt1 gcprdvt1;
+  gcdeft2 on gcdomt1(Sa1);
+  gcdeft2 on gcpret1(Sa2);
+  gcdeft2 on gcsoct1 gccmpt1 gcprdvt1;
+  gcprdvt2 on gcdeft2(Sb);
+
+
+  %BETWEEN target%
+  gcprdvt2 on gender;
+
+  %BETWEEN rater%
+  gcprdvt2 on rtr_gend;
+
+  MODEL CONSTRAINT:
+  NEW(def_ind_dom);
+  def_ind_dom = Sa1*Sb;
+
+  NEW(def_ind_pre);
+  def_ind_pre = Sa2*Sb;
+
+
+  NEW(tot_dom);
+  tot_dom = def_ind_dom + c1;
+  NEW(tot_pre);
+  tot_pre = def_ind_pre + c2;
+
+
+  OUTPUT: TECH1 TECH8;
+
+
+
+*** WARNING
+  Data set contains cases with missing on x-variables.
+  These cases were not included in the analysis.
+  Number of cases with missing on x-variables:  844
+*** WARNING
+  Data set contains cases with missing on all variables except
+  x-variables.  These cases were not included in the analysis.
+  Number of cases with missing on all variables except x-variables:  205
+   2 WARNING(S) FOUND IN THE INPUT INSTRUCTIONS
+
+
+
+MBA Analyses
+
+SUMMARY OF ANALYSIS
+
+Number of groups                                                 1
+Number of observations                                        1223
+
+Number of dependent variables                                    2
+Number of independent variables                                  7
+Number of continuous latent variables                            0
+
+Observed dependent variables
+
+  Continuous
+   GCPRDVT2    GCDEFT2
+
+Observed independent variables
+   GCPRDVT1    GCDOMT1     GCPRET1     GCSOCT1     GCCMPT1     GENDER
+   RTR_GEND
+
+Variables with special functions
+
+  Cluster variables     TARGET    RATER
+
+  Within variables
+   GCPRDVT1    GCDOMT1     GCPRET1     GCSOCT1     GCCMPT1     GCDEFT2
+
+  Level 2a between variables
+   RTR_GEND
+
+  Level 2b between variables
+   GENDER
+
+
+Estimator                                                    BAYES
+Specifications for Bayesian Estimation
+  Point estimate                                            MEDIAN
+  Number of Markov chain Monte Carlo (MCMC) chains               2
+  Random seed for the first chain                                0
+  Starting value information                           UNPERTURBED
+  Algorithm used for Markov chain Monte Carlo           GIBBS(PX1)
+  Convergence criterion                                  0.500D-01
+  Maximum number of iterations                               50000
+  K-th iteration used for thinning                               1
+
+Input data file(s)
+  /Users/kaylene/Documents/kaylene/mplus_dataa2.csv
+Input data format  FREE
+
+
+SUMMARY OF DATA
+
+     Cluster information for RATER
+
+       Number of clusters                      284
+
+       Size (s)    Cluster ID with Size s
+
+          1        185 122
+          2        331
+          3        169 149 484 105 55 56
+          4        57 42 11 496 71 35 74 172 421 9 495 406 279 305 423
+                   6 17 383 483 518 393 77 182 136 132 198 160 501 357
+                   498 210 326 92 145 333 72 343 205 416 453 236 16 188
+                   448 437 86 44 256 139 85 335 2 289 466 301 475 152 23
+                   151 344 275 222 32 93 341 109 308 387 47 30 486 315
+                   76 418 65 58 392 413 509 467 294 338 470 10 349 465
+                   31 164 317 505 20 379 310 324 201 386 53 362 264 90
+                   408 140 137 428 223 412 38 463 61 19 18 353 200 440
+                   363 464 252 485 259 125 402 191 303 33 291 174 371 88
+                   304 231 272 400 186 321 422 500 87 403 380 431 424 295
+                   27 504 154 175 471 285 204 158 508 141 51 278 274 118
+                   178 282 328 216 389 97 516 266 351 121 460 347 193 49
+                   117 123 100 489
+          5        228 419 261 299 221 168 345 162 478 224 365 384 218
+                   113 330 192 355 366 476 184 364 511 128 487 438 202
+                   78 297 176 443 146 133 171 458 12 217 494 46 302 3 468
+                   368 269 43 306 481 153 407 79 25 227 166 214 267 414
+                   83 270 246 82 370 426 417 339 60 155 323 15 329 444
+                   41 336 325 342 225 209 356 239 124 106 327 348 50 258
+                   447 150 296 207 37 21 396 354 415 405 340 135 262 280
+                   101 22 449 240
+
+     Cluster information for TARGET
+
+       Number of clusters                      520
+
+       Size (s)    Cluster ID with Size s
+
+          1        315 556 526 244 360 453 766 18 59 640 774 301 377 510
+                   760 248 314 131 502 323 537 3 519 734 447 83 271 648
+                   789 47 346 303 364 600 712 653 612 164 262 15 740 402
+                   586 622 646 794 491 128 576 718 800 50 140 185 775 129
+                   411 11 100 234 385 317 552 379 255 545 628 67 136 516
+                   744 793 39 272 237 66 633 694 798 504 435 86 306 506
+                   189 190 311 378 530 256 280 560 686 696 772 341 71 79
+                   398 544 822 500 709 403 32 53 528 639 407 210
+          2        547 783 102 103 511 147 293 807 220 126 60 473 776 680
+                   704 281 121 214 400 412 371 177 224 284 562 212 215
+                   643 619 498 238 665 54 650 347 182 374 421 437 817 194
+                   404 759 269 235 746 465 520 16 282 287 457 673 685 2
+                   485 579 425 538 70 230 501 658 509 322 439 741 180 424
+                   428 88 169 391 207 176 356 369 161 533 143 609 339 151
+                   192 179 133 406 462 663 605 305 499 594 631 211 286
+                   589 264 110 489 761 87 95 661 334 20 723 265 118 754
+                   604 742 808 277 4 466 63 417 577 738 31 99 771 522 455
+                   735 805 257 337 354 119 654 415 117 383 418 25 496 239
+                   57 701 505 28 138 330 350 535 193 372 557 148 221 688
+                   51 787 812 325 458 228 254 302 326 508 668 725 554 655
+                   617 9 166 299 358 758 539 58 115 44 678 815 733 33 152
+                   431
+          3        573 802 488 567 73 667 373 574 711 156 108 137 598 780
+                   395 250 261 540 345 451 266 157 770 757 29 30 91 731
+                   226 477 357 112 320 693 762 222 274 700 460 332 445
+                   43 392 568 732 660 705 697 810 10 331 532 644 558 48
+                   304 467 127 178 630 638 125 82 229 270 582 626 450 259
+                   674 114 236 641 753 782 788 472 672 429 219 645 124
+                   401 553 595 632 351 512 786 726 384 387 708 432 541
+                   706 26 81 104 168 167 702 388 551 310 635 662 749 515
+                   799 613 23 42 756 823 669 62 132 294 599 722 736 642
+                   72 503 546 158 737 781 74 216 804 245 195 523 353 565
+                   629 610 463 84 507 318 27 368 480 716 651 656 698 14
+                   187 399 267 149 534 201 778 188 413 549 821 69 307 89
+                   543 659 695 728
+          4        652 362 422 297 627 468 727 710 575 296 773 459 285
+                   64 691 763 291 479 17 46 78 90 527 657 676 581 276 319
+                   636 497 811 603 482 198 288 569 813 747 61 233 123 443
+                   607 703 785 692 481 290 430 616
+          5        342 495 572 349 571 601 750 171
+
+
+
+COVARIANCE COVERAGE OF DATA
+
+Minimum covariance coverage value   0.100
+
+     Number of missing data patterns             1
+
+
+     PROPORTION OF DATA PRESENT
+
+
+           Covariance Coverage
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2       1.000
+ GCDEFT2        1.000         1.000
+ GCPRDVT1       1.000         1.000         1.000
+ GCDOMT1        1.000         1.000         1.000         1.000
+ GCPRET1        1.000         1.000         1.000         1.000         1.000
+ GCSOCT1        1.000         1.000         1.000         1.000         1.000
+ GCCMPT1        1.000         1.000         1.000         1.000         1.000
+ GENDER         1.000         1.000         1.000         1.000         1.000
+ RTR_GEND       1.000         1.000         1.000         1.000         1.000
+
+
+           Covariance Coverage
+              GCSOCT1       GCCMPT1       GENDER        RTR_GEND
+              ________      ________      ________      ________
+ GCSOCT1        1.000
+ GCCMPT1        1.000         1.000
+ GENDER         1.000         1.000         1.000
+ RTR_GEND       1.000         1.000         1.000         1.000
+
+
+
+UNIVARIATE SAMPLE STATISTICS
+
+
+     UNIVARIATE HIGHER-ORDER MOMENT DESCRIPTIVE STATISTICS
+
+         Variable/         Mean/     Skewness/   Minimum/ % with                Percentiles
+        Sample Size      Variance    Kurtosis    Maximum  Min/Max      20%/60%    40%/80%    Median
+
+     GCPRDVT2              0.006      -0.147      -3.667    0.08%      -1.133     -0.312      0.062
+            1223.000       1.803      -0.422       3.300    0.08%       0.438      1.156
+     GCDEFT2               0.008      -0.341      -4.000    0.16%      -1.125     -0.250      0.083
+            1223.000       1.747      -0.143       3.250    0.16%       0.500      1.167
+     GCPRDVT1             -0.017      -0.140      -3.708    0.08%      -1.125     -0.265      0.033
+            1223.000       1.573      -0.408       3.350    0.08%       0.360      1.083
+     GCDOMT1               0.003       0.721      -2.833    0.08%      -1.054     -0.533     -0.230
+            1223.000       1.589       0.165       4.463    0.08%       0.113      1.062
+     GCPRET1              -0.020      -0.309      -3.381    0.08%      -0.778     -0.240      0.042
+            1223.000       0.958       0.266       2.938    0.08%       0.300      0.750
+     GCSOCT1              -0.010      -0.460      -4.100    0.33%      -1.125     -0.250      0.120
+            1223.000       1.853      -0.310       3.000    0.08%       0.571      1.200
+     GCCMPT1               0.000      -0.585      -4.000    0.08%      -0.900     -0.167      0.067
+            1223.000       1.245       0.323       2.583    0.08%       0.350      1.000
+     GENDER                0.629      -0.533       0.000   37.12%       0.000      1.000      1.000
+             520.000       0.233      -1.715       1.000   62.88%       1.000      1.000
+     RTR_GEND              0.574      -0.299       0.000   42.61%       0.000      0.000      1.000
+             284.000       0.245      -1.911       1.000   57.39%       1.000      1.000
+
+
+THE MODEL ESTIMATION TERMINATED NORMALLY
+
+     USE THE FBITERATIONS OPTION TO INCREASE THE NUMBER OF ITERATIONS BY A FACTOR
+     OF AT LEAST TWO TO CHECK CONVERGENCE AND THAT THE PSR VALUE DOES NOT INCREASE.
+
+
+
+MODEL FIT INFORMATION
+
+Number of Free Parameters                              18
+
+Bayesian Posterior Predictive Checking using Chi-Square
+
+          95% Confidence Interval for the Difference Between
+          the Observed and the Replicated Chi-Square Values
+
+                                -17.212            18.650
+
+          Posterior Predictive P-Value              0.493
+
+Information Criteria
+
+          Deviance (DIC)                         6602.448
+          Estimated Number of Parameters (pD)     140.764
+
+
+
+MODEL RESULTS
+
+                                Posterior  One-Tailed         95% C.I.
+                    Estimate       S.D.      P-Value   Lower 2.5%  Upper 2.5%  Significance
+
+Within Level
+
+ GCPRDVT2   ON
+    GCDOMT1            0.118       0.021      0.000       0.078       0.157      *
+    GCPRET1            0.066       0.031      0.013       0.006       0.128      *
+    GCPRDVT1           0.315       0.029      0.000       0.259       0.372      *
+    GCCMPT1            0.043       0.029      0.077      -0.014       0.101
+    GCDEFT2            0.533       0.021      0.000       0.491       0.576      *
+
+ GCDEFT2    ON
+    GCDOMT1           -0.067       0.030      0.011      -0.129      -0.010      *
+    GCPRET1            0.124       0.042      0.002       0.040       0.204      *
+    GCSOCT1            0.104       0.028      0.001       0.048       0.159      *
+    GCCMPT1            0.251       0.040      0.000       0.171       0.326      *
+    GCPRDVT1           0.289       0.040      0.000       0.212       0.368      *
+
+ Intercepts
+    GCDEFT2            0.018       0.032      0.306      -0.047       0.080
+
+ Residual Variances
+    GCPRDVT2           0.552       0.034      0.000       0.485       0.620      *
+    GCDEFT2            1.231       0.049      0.000       1.140       1.331      *
+
+Between RATER Level
+
+ GCPRDVT2   ON
+    RTR_GEND           0.008       0.055      0.439      -0.085       0.126
+
+ Residual Variances
+    GCPRDVT2           0.022       0.014      0.000       0.001       0.055      *
+
+Between TARGET Level
+
+ GCPRDVT2   ON
+    GENDER            -0.171       0.051      0.001      -0.272      -0.068      *
+
+ Intercepts
+    GCPRDVT2           0.113       0.055      0.015       0.008       0.229      *
+
+ Residual Variances
+    GCPRDVT2           0.053       0.021      0.000       0.023       0.102      *
+
+New/Additional Parameters
+    DEF_IND_          -0.036       0.016      0.011      -0.069      -0.005      *
+    DEF_IND_           0.065       0.023      0.002       0.022       0.111      *
+    TOT_DOM            0.081       0.026      0.001       0.031       0.131      *
+    TOT_PRE            0.132       0.038      0.001       0.062       0.205      *
+
+
+TECHNICAL 1 OUTPUT
+
+
+     PARAMETER SPECIFICATION FOR WITHIN
+
+
+           NU
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+                    0             0             0             0             0
+
+
+           NU
+              GCSOCT1       GCCMPT1
+              ________      ________
+                    0             0
+
+
+           LAMBDA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2           0             0             0             0             0
+ GCDEFT2            0             0             0             0             0
+ GCPRDVT1           0             0             0             0             0
+ GCDOMT1            0             0             0             0             0
+ GCPRET1            0             0             0             0             0
+ GCSOCT1            0             0             0             0             0
+ GCCMPT1            0             0             0             0             0
+
+
+           LAMBDA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCPRDVT2           0             0
+ GCDEFT2            0             0
+ GCPRDVT1           0             0
+ GCDOMT1            0             0
+ GCPRET1            0             0
+ GCSOCT1            0             0
+ GCCMPT1            0             0
+
+
+           THETA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2           0
+ GCDEFT2            0             0
+ GCPRDVT1           0             0             0
+ GCDOMT1            0             0             0             0
+ GCPRET1            0             0             0             0             0
+ GCSOCT1            0             0             0             0             0
+ GCCMPT1            0             0             0             0             0
+
+
+           THETA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCSOCT1            0
+ GCCMPT1            0             0
+
+
+           ALPHA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+                    0             1             0             0             0
+
+
+           ALPHA
+              GCSOCT1       GCCMPT1
+              ________      ________
+                    0             0
+
+
+           BETA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2           0             2             3             4             5
+ GCDEFT2            0             0             7             8             9
+ GCPRDVT1           0             0             0             0             0
+ GCDOMT1            0             0             0             0             0
+ GCPRET1            0             0             0             0             0
+ GCSOCT1            0             0             0             0             0
+ GCCMPT1            0             0             0             0             0
+
+
+           BETA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCPRDVT2           0             6
+ GCDEFT2           10            11
+ GCPRDVT1           0             0
+ GCDOMT1            0             0
+ GCPRET1            0             0
+ GCSOCT1            0             0
+ GCCMPT1            0             0
+
+
+           PSI
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2          12
+ GCDEFT2            0            13
+ GCPRDVT1           0             0             0
+ GCDOMT1            0             0             0             0
+ GCPRET1            0             0             0             0             0
+ GCSOCT1            0             0             0             0             0
+ GCCMPT1            0             0             0             0             0
+
+
+           PSI
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCSOCT1            0
+ GCCMPT1            0             0
+
+
+     PARAMETER SPECIFICATION FOR BETWEEN RATER
+
+
+           NU
+              GCPRDVT2      RTR_GEND
+              ________      ________
+                    0             0
+
+
+           LAMBDA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2           0             0
+ RTR_GEND           0             0
+
+
+           THETA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2           0
+ RTR_GEND           0             0
+
+
+           ALPHA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+                    0             0
+
+
+           BETA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2           0            14
+ RTR_GEND           0             0
+
+
+           PSI
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2          15
+ RTR_GEND           0             0
+
+
+     PARAMETER SPECIFICATION FOR BETWEEN TARGET
+
+
+           NU
+              GCPRDVT2      GENDER
+              ________      ________
+                    0             0
+
+
+           LAMBDA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2           0             0
+ GENDER             0             0
+
+
+           THETA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2           0
+ GENDER             0             0
+
+
+           ALPHA
+              GCPRDVT2      GENDER
+              ________      ________
+                   16             0
+
+
+           BETA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2           0            17
+ GENDER             0             0
+
+
+           PSI
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2          18
+ GENDER             0             0
+
+
+     PARAMETER SPECIFICATION FOR THE ADDITIONAL PARAMETERS
+
+
+           NEW/ADDITIONAL PARAMETERS
+              DEF_IND_      TOT_DOM       TOT_PRE
+              ________      ________      ________
+                   19            20            21            22
+
+
+     STARTING VALUES FOR WITHIN
+
+
+           NU
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+                0.000         0.000         0.000         0.000         0.000
+
+
+           NU
+              GCSOCT1       GCCMPT1
+              ________      ________
+                0.000         0.000
+
+
+           LAMBDA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2       1.000         0.000         0.000         0.000         0.000
+ GCDEFT2        0.000         1.000         0.000         0.000         0.000
+ GCPRDVT1       0.000         0.000         1.000         0.000         0.000
+ GCDOMT1        0.000         0.000         0.000         1.000         0.000
+ GCPRET1        0.000         0.000         0.000         0.000         1.000
+ GCSOCT1        0.000         0.000         0.000         0.000         0.000
+ GCCMPT1        0.000         0.000         0.000         0.000         0.000
+
+
+           LAMBDA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCPRDVT2       0.000         0.000
+ GCDEFT2        0.000         0.000
+ GCPRDVT1       0.000         0.000
+ GCDOMT1        0.000         0.000
+ GCPRET1        0.000         0.000
+ GCSOCT1        1.000         0.000
+ GCCMPT1        0.000         1.000
+
+
+           THETA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2       0.000
+ GCDEFT2        0.000         0.000
+ GCPRDVT1       0.000         0.000         0.000
+ GCDOMT1        0.000         0.000         0.000         0.000
+ GCPRET1        0.000         0.000         0.000         0.000         0.000
+ GCSOCT1        0.000         0.000         0.000         0.000         0.000
+ GCCMPT1        0.000         0.000         0.000         0.000         0.000
+
+
+           THETA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCSOCT1        0.000
+ GCCMPT1        0.000         0.000
+
+
+           ALPHA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+                0.000         0.008         0.000         0.000         0.000
+
+
+           ALPHA
+              GCSOCT1       GCCMPT1
+              ________      ________
+                0.000         0.000
+
+
+           BETA
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2       0.000         0.000         0.000         0.000         0.000
+ GCDEFT2        0.000         0.000         0.000         0.000         0.000
+ GCPRDVT1       0.000         0.000         0.000         0.000         0.000
+ GCDOMT1        0.000         0.000         0.000         0.000         0.000
+ GCPRET1        0.000         0.000         0.000         0.000         0.000
+ GCSOCT1        0.000         0.000         0.000         0.000         0.000
+ GCCMPT1        0.000         0.000         0.000         0.000         0.000
+
+
+           BETA
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCPRDVT2       0.000         0.000
+ GCDEFT2        0.000         0.000
+ GCPRDVT1       0.000         0.000
+ GCDOMT1        0.000         0.000
+ GCPRET1        0.000         0.000
+ GCSOCT1        0.000         0.000
+ GCCMPT1        0.000         0.000
+
+
+           PSI
+              GCPRDVT2      GCDEFT2       GCPRDVT1      GCDOMT1       GCPRET1
+              ________      ________      ________      ________      ________
+ GCPRDVT2       0.902
+ GCDEFT2        0.000         0.874
+ GCPRDVT1       0.000         0.000         0.786
+ GCDOMT1        0.000         0.000         0.000         0.795
+ GCPRET1        0.000         0.000         0.000         0.000         0.479
+ GCSOCT1        0.000         0.000         0.000         0.000         0.000
+ GCCMPT1        0.000         0.000         0.000         0.000         0.000
+
+
+           PSI
+              GCSOCT1       GCCMPT1
+              ________      ________
+ GCSOCT1        0.926
+ GCCMPT1        0.000         0.623
+
+
+     STARTING VALUES FOR BETWEEN RATER
+
+
+           NU
+              GCPRDVT2      RTR_GEND
+              ________      ________
+                0.000         0.000
+
+
+           LAMBDA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2       1.000         0.000
+ RTR_GEND       0.000         1.000
+
+
+           THETA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2       0.000
+ RTR_GEND       0.000         0.000
+
+
+           ALPHA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+                0.000         0.000
+
+
+           BETA
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2       0.000         0.000
+ RTR_GEND       0.000         0.000
+
+
+           PSI
+              GCPRDVT2      RTR_GEND
+              ________      ________
+ GCPRDVT2       0.902
+ RTR_GEND       0.000         0.122
+
+
+     STARTING VALUES FOR BETWEEN TARGET
+
+
+           NU
+              GCPRDVT2      GENDER
+              ________      ________
+                0.000         0.000
+
+
+           LAMBDA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2       1.000         0.000
+ GENDER         0.000         1.000
+
+
+           THETA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2       0.000
+ GENDER         0.000         0.000
+
+
+           ALPHA
+              GCPRDVT2      GENDER
+              ________      ________
+                0.006         0.000
+
+
+           BETA
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2       0.000         0.000
+ GENDER         0.000         0.000
+
+
+           PSI
+              GCPRDVT2      GENDER
+              ________      ________
+ GCPRDVT2       0.902
+ GENDER         0.000         0.116
+
+
+     STARTING VALUES FOR THE ADDITIONAL PARAMETERS
+
+
+           NEW/ADDITIONAL PARAMETERS
+              DEF_IND_      TOT_DOM       TOT_PRE
+              ________      ________      ________
+                0.500         0.500         0.500         0.500
+
+
+
+     PRIORS FOR ALL PARAMETERS            PRIOR MEAN      PRIOR VARIANCE     PRIOR STD. DEV.
+
+     Parameter 1~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 2~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 3~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 4~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 5~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 6~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 7~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 8~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 9~N(0.000,infinity)           0.0000            infinity            infinity
+     Parameter 10~N(0.000,infinity)          0.0000            infinity            infinity
+     Parameter 11~N(0.000,infinity)          0.0000            infinity            infinity
+     Parameter 12~IG(-1.000,0.000)         infinity            infinity            infinity
+     Parameter 13~IG(-1.000,0.000)         infinity            infinity            infinity
+     Parameter 14~N(0.000,infinity)          0.0000            infinity            infinity
+     Parameter 15~IG(-1.000,0.000)         infinity            infinity            infinity
+     Parameter 16~N(0.000,infinity)          0.0000            infinity            infinity
+     Parameter 17~N(0.000,infinity)          0.0000            infinity            infinity
+     Parameter 18~IG(-1.000,0.000)         infinity            infinity            infinity
+
+
+TECHNICAL 8 OUTPUT
+
+
+   TECHNICAL 8 OUTPUT FOR BAYES ESTIMATION
+
+     CHAIN    BSEED
+     1        0
+     2        285380
+
+                     POTENTIAL       PARAMETER WITH
+     ITERATION    SCALE REDUCTION      HIGHEST PSR
+     100              1.361               15
+     200              1.550               14
+     300              1.271               15
+     400              1.416               18
+     500              1.690               18
+     600              1.976               18
+     700              2.132               18
+     800              2.019               18
+     900              1.612               18
+     1000             1.411               18
+     1100             1.030               18
+     1200             1.010               15
+     1300             1.115               18
+     1400             1.269               18
+     1500             1.390               18
+     1600             1.558               18
+     1700             1.569               18
+     1800             1.725               18
+     1900             1.685               15
+     2000             1.711               15
+     2100             1.511               15
+     2200             1.335               18
+     2300             1.249               18
+     2400             1.211               18
+     2500             1.181               18
+     2600             1.163               18
+     2700             1.139               18
+     2800             1.114               18
+     2900             1.065               18
+
+
+DIAGRAM INFORMATION
+
+  Mplus diagrams are currently not available for multilevel analysis.
+  No diagram output was produced.
+
+
+     Beginning Time:  12:35:34
+        Ending Time:  12:35:43
+       Elapsed Time:  00:00:09
+
+
+
+MUTHEN & MUTHEN
+3463 Stoner Ave.
+Los Angeles, CA  90066
+
+Tel: (310) 391-9971
+Fax: (310) 391-8971
+Web: www.StatModel.com
+Support: Support@StatModel.com
+
+Copyright (c) 1998-2019 Muthen & Muthen
+
+
