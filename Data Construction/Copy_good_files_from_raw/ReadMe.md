@@ -87,6 +87,4 @@ This ensures that when copying a project, the relevant data files come along wit
   - All relevant data files  
   neatly copied and ready for inspection or replication.
 
----
 
-This summary provides a compact overview of how the scripts work together without diving into implementation details.
