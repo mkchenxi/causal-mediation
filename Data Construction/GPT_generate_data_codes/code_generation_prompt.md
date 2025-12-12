@@ -1,13 +1,3 @@
-Below is the **fully generalized prompt** updated with your new requirement:
-
-* If raw data needed for a mediation dataset are **not available**, GPT should **return `NULL` for that dataset’s R-construction code**.
-* Step 6 explicitly accounts for non-available raw data.
-* A placeholder is included where you will insert the list of raw data files you have.
-
----
-
-# **Generalized Prompt (Final Version — No Mplus, Single Code File Input, Raw Data Inventory Placeholder, NULL output when data unavailable)**
-
 You are an expert in statistical programming (R, Python, Stata), mediation analysis, data reconstruction, and code-base forensics.
 I will upload a **single integrated text file (.txt)** that contains all project code (merged scripts).
 I will also provide a **list of all raw data files I have access to**, including filenames and formats.
