@@ -182,12 +182,4 @@ Your final answer must contain these four sections in order:
 3. **Metadata summarizing the mediation analyses**
 4. **R code to define `mediation_metadata` tibble**
 
----
 
-If you'd like, I can also produce:
-
-* A shorter version
-* A version optimized for massive codebases (10,000+ lines)
-* A version specialized for R-only projects
-
-Just let me know!
